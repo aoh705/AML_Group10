@@ -104,6 +104,7 @@ transformed_train <- bake(blueprint_prep, new_data = games_train)
 transformed_test <- bake(blueprint_prep, new_data = games_test) ######## FOR SOME REASON, THIS TAKES FOREVER TO RUN
 
 
+
 ### RANDOM FOREST
 
 resample_1 <- trainControl(method = "cv",
@@ -159,10 +160,95 @@ RF_test_results <- confusionMatrix(transformed_test$white_result, RF_pred_test)
 print(RF_test_results)
 
 
-### NEXT STEPS (Is there anything I am missing?)
-# 1. RF
-# 2. XGBoost
-# 3. SVM
-# 4. Artificial Neural Network
-# 5. Ensemble Method
+### XG Boost
+
+dtrain <- xgb.DMatrix(data = as.matrix(transformed_train[, -which(names(transformed_train) == "white_result")]),
+                      label = as.numeric(transformed_train$white_result) - 1)
+
+dtest <- xgb.DMatrix(data = as.matrix(transformed_test[, -which(names(transformed_test) == "white_result")]),
+                     label = as.numeric(transformed_test$white_result) - 1)
+
+hyper_grid <- expand.grid(
+  eta = c(0.05, 0.1),
+  max_depth = c(3, 6),
+  min_child_weight = c(1, 2),
+  subsample = c(0.5, 0.75),
+  colsample_bytree = c(0.5, 0.75),
+  gamma = c(0, 0.1),
+  stringsAsFactors = FALSE  # To keep the grid as a dataframe of strings
+)
+
+
+# Initialize an empty dataframe to store results
+results <- data.frame()
+
+# Loop over each set of parameters in the grid
+for(i in 1:nrow(hyper_grid)) {
+  params <- list(
+    booster = "gbtree",
+    objective = "binary:logistic",
+    eval_metric = "auc",
+    eta = hyper_grid$eta[i],
+    max_depth = hyper_grid$max_depth[i],
+    min_child_weight = hyper_grid$min_child_weight[i],
+    subsample = hyper_grid$subsample[i],
+    colsample_bytree = hyper_grid$colsample_bytree[i],
+    gamma = hyper_grid$gamma[i]
+  )
+  
+  # Perform cross-validation
+  cv <- xgb.cv(
+    params = params,
+    data = dtrain,
+    nrounds = 100,
+    nfold = 5,
+    early_stopping_rounds = 10,
+    verbose = 0  # Change to 1 for more detailed output
+  )
+  
+  # Record the best score and corresponding parameters
+  best_score <- max(cv$evaluation_log$test_auc_mean)
+  results <- rbind(results, cbind(hyper_grid[i, ], score = best_score))
+}
+
+# Review the results
+results <- results[order(-results$score), ]  # Sort by score descending
+print(results)
+
+best_params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "auc",
+  eta = 0.05,
+  max_depth = 6,
+  min_child_weight = 2,
+  subsample = 0.50,
+  colsample_bytree = 0.75,
+  gamma = 0
+)
+
+# Train final model on the entire training dataset
+final_model <- xgb.train(
+  params = best_params,
+  data = dtrain,
+  nrounds = 100  # Or use the best iteration number from your CV results
+)
+
+# Predictions on the training data
+train_preds_prob <- predict(final_model, dtrain)
+train_preds <- ifelse(train_preds_prob > 0.5, 1, 0)  # Convert probabilities to binary class output
+
+# Prepare the testing data as DMatrix
+dtest <- xgb.DMatrix(data = as.matrix(transformed_test[, -which(names(transformed_test) == "white_result")]))
+# Predictions on the testing data
+test_preds_prob <- predict(final_model, dtest)
+test_preds <- ifelse(test_preds_prob > 0.5, 1, 0)  # Convert probabilities to binary class output
+
+# Training data confusion matrix
+confusionMatrix(factor(train_preds, levels = c(0, 1)),
+                factor(as.numeric(transformed_train$white_result) - 1, levels = c(0, 1)))
+
+# Testing data confusion matrix
+confusionMatrix(factor(test_preds, levels = c(0, 1)),
+                factor(as.numeric(transformed_test$white_result) - 1, levels = c(0, 1)))
 
