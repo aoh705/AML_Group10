@@ -10,7 +10,7 @@ library(pROC)
 library(dplyr)
 library(ggplot2)
 
-### !! PURPOSELY MESSING UP THE DATASET
+### PURPOSELY MESSING UP THE DATASET TO ALLOW FOR DATA PREPROCESSING
 # I did this after data exploration revealed no NA values.
 # I restricted the columns that I'm messing up.
 # I think for the final submission, we could just do this in a separate
@@ -31,14 +31,17 @@ for (col in columns_to_na) {
   chess_games_data[rows_to_na, col] <- NA
 }
 
+write.csv(chess_games_data, "chess_games_data.csv", row.names = FALSE)
+
+
+
+
+
+
+
+
 
 ### DATA EXPLORATION
-#1. There are no missing values, so I think we can delete some values and impute them,
-##. perhaps from the player ratings column. (!! DONE ABOVE)
-#2. Data shows "black result" and "white result", the former of which I am going
-##. to drop (DONE)
-#3. Data has "resigned", "checkmated" etc, which I am going to change to 0, 0.5,
-##. and 1. (DONE)
 
 # See the first 6 rows
 head(chess_games_data)
