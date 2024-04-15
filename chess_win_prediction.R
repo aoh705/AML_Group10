@@ -10,11 +10,7 @@ library(pROC)
 library(dplyr)
 library(ggplot2)
 
-### PURPOSELY MESSING UP THE DATASET TO ALLOW FOR DATA PREPROCESSING
-# I did this after data exploration revealed no NA values.
-# I restricted the columns that I'm messing up.
-# I think for the final submission, we could just do this in a separate
-# appendix document.
+### PURPOSELY MESSING UP THE DATASET
 chess_games_data <- read.csv("Documents/Chess Win Prediction/club_games_data.csv")
 
 set.seed(1)
@@ -32,9 +28,6 @@ for (col in columns_to_na) {
 }
 
 write.csv(chess_games_data, "chess_games_data.csv", row.names = FALSE)
-
-
-
 
 
 
@@ -62,9 +55,9 @@ chess_games_data <- chess_games_data[, !(names(chess_games_data) %in% c("black_r
 
 chess_games_data <- chess_games_data %>%
   mutate(white_result = case_when(
-    white_result %in% c("win", "threecheck", "kingofthehill") ~ 1,
-    white_result %in% c("checkmated", "timeout", "resigned", "abandoned") ~ 0,
-    TRUE ~ 0.5 # Assumes all other cases are draws
+    white_result %in% c("win", "threecheck", "kingofthehill") ~ "win",
+    white_result %in% c("checkmated", "timeout", "resigned", "abandoned") ~ "loss",
+    TRUE ~ "draw" # Assumes all other cases are draws
   ))
 
 # Data Splitting
@@ -102,12 +95,69 @@ blueprint <- recipe(white_result ~ ., data = games_train) %>%
   step_center(all_numeric_predictors()) %>%
   step_scale(all_numeric_predictors()) %>%
   step_other(all_nominal(), threshold = 0.01, other = "other") %>%
-  step_dummy(all_nominal())
+  step_dummy(all_nominal_predictors())
 
 blueprint_prep <- prep(blueprint, training = games_train)
 
 transformed_train <- bake(blueprint_prep, new_data = games_train)
-transformed_test <- bake(blueprint_prep, new_data = games_test)
+
+transformed_test <- bake(blueprint_prep, new_data = games_test) ######## FOR SOME REASON, THIS TAKES FOREVER TO RUN
+
+
+### RANDOM FOREST
+
+resample_1 <- trainControl(method = "cv",
+                           number = 5,
+                           classProbs = TRUE,
+                           summaryFunction = twoClassSummary)    # adds more metrics to the model
+
+hyper_grid <- expand.grid(mtry = c(13, 15, 17),
+                          splitrule = c("gini", "extratrees"),
+                          min.node.size = c(5, 7, 9))
+
+rf_fit <- train(white_result ~ .,
+                data = transformed_train, 
+                method = "ranger",
+                verbose = FALSE,
+                trControl = resample_1, 
+                tuneGrid = hyper_grid,
+                metric = "ROC")
+
+
+ggplot(rf_fit, metric = "Sens")   # Sensitivity
+ggplot(rf_fit, metric = "Spec")   # Specificity
+ggplot(rf_fit, metric = "ROC")    # AUC ROC
+
+
+fitControl_final <- trainControl(method = "none",
+                                 classProbs = TRUE)
+
+RF_final <- train(white_result ~., 
+                  data = transformed_train,
+                  method = "ranger",
+                  trControl = fitControl_final,
+                  metric = "ROC",
+                  tuneGrid = data.frame(.mtry = 13,
+                                        .min.node.size = 9,
+                                        .splitrule = "gini"))
+
+
+# Training set results
+
+RF_pred_train <- predict(RF_final, newdata = transformed_train)
+
+RF_train_results <- confusionMatrix(transformed_train$white_result, RF_pred_train)
+
+print(RF_train_results)
+
+# Test set results
+
+RF_pred_test <- predict(RF_final, newdata = transformed_test)
+
+RF_test_results <- confusionMatrix(transformed_test$white_result, RF_pred_test)
+
+print(RF_test_results)
+
 
 ### NEXT STEPS (Is there anything I am missing?)
 # 1. RF
