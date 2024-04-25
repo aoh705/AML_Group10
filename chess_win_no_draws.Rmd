@@ -176,7 +176,7 @@ ggplot(combined_df, aes(x = value, y = percentage, fill = dataset)) +
   scale_fill_manual(values = c("Full" = "purple", "Train" = "blue", "Test" = "green"))
 ```
 
-6. Tranforming data
+6. Transforming data
 ```{r}
 blueprint <- recipe(white_result ~ ., data = games_train) %>%
   step_string2factor(all_nominal_predictors()) %>%
@@ -487,5 +487,42 @@ SP_results <- confusionMatrix(transformed_test$white_result, SP_prediction)
 SP_results
 ```
 
+- Interpretable ML: Permutation Based Feature Importance
+```{r}
+# RF
+
+vip(RF_final)
+
+vip(RF_final, num_features = 20)
+
+vip(RF_final, num_features = 20, geom = "point")
 
 
+# XGB
+
+vip(XGB_final)
+
+vip(XGB_final, num_features = 20)
+
+vip(XGB_final, num_features = 20, geom = "point")
+
+# ANN
+
+library(DALEX)
+
+transformed_train$white_result <- factor(transformed_train$white_result, levels = c("loss", "win"))
+y_numeric <- as.numeric(transformed_train$white_result) - 1
+
+# Explainer
+explainer_ANN <- explain(model = ANN_final, 
+                         data = transformed_train[, -which(names(transformed_train) == "white_result")],
+                         y = y_numeric,
+                         label = "ANN Model")
+
+# Compute permutation-based feature importance for the ANN model
+fi_ANN <- model_parts(explainer = explainer_ANN, 
+                      type = "raw",
+                      loss_function = loss_accuracy)
+
+# Plot the feature importance
+plot(fi_ANN, max_vars = 20)
