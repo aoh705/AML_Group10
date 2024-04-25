@@ -66,6 +66,45 @@ str(chess_games_data)
 unique(chess_games_data$white_result)
 # Summary
 summary(chess_games_data)
+
+numeric_columns <- sapply(chess_dataset, is.numeric)
+
+# Plotting the distribution of numerical features
+ggplot(gather(chess_dataset[, numeric_columns]), aes(value)) +
+  geom_histogram(bins = 30, fill = "red", color = "black") +
+  facet_wrap(~ key, scales = 'free_x') +
+  theme_minimal() +
+  labs(title = 'Distribution of Numerical Features', x = NULL, y = "Frequency")
+
+# TO-FIX:
+
+# chess_dataset$white_result <- factor(chess_dataset$white_result)
+
+# ggplot(gather(chess_dataset[, numeric_columns], key = 'feature', value = 'value'),
+#         aes(x = feature, y = value, fill = white_result)) +
+#         geom_boxplot() +
+#         facet_wrap(~ feature, scales = 'free') +
+#         theme_minimal() +
+#         labs(title = 'Box Plot of Numerical Features by Outcome', x = NULL, y = "Value")
+#         scale_fill_manual(values = c("win" = "green", "loss" = "red"))
+
+# Creating the feature rating difference between the white and the black players
+
+ELODiff <- with(chess_dataset, white_rating-black_rating)
+
+chess_dataset$rating_difference <- ELODiff
+         
+chess_dataset %>%
+  group_by(white_result) %>%
+  summarise(mean_difference = mean(rating_difference, na.rm = TRUE),
+            sd_difference = sd(rating_difference, na.rm = TRUE))
+         
+ggplot(chess_dataset, aes(x = white_result, y = rating_difference, fill = white_result)) +
+ geom_boxplot() +
+  labs(title = "Rating Differences by Outcome", x = "Game outcome", y = "Rating difference") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 ```
 
 Data cleaning/pre-processing:
