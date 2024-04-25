@@ -508,21 +508,13 @@ vip(XGB_final, num_features = 20, geom = "point")
 
 # ANN
 
-library(DALEX)
+prob_yes <- function(object, newdata) {                        # wrapper function
+  
+  predict(object, newdata = newdata, type = "prob")[, "Yes"]
+  
+}
 
-transformed_train$white_result <- factor(transformed_train$white_result, levels = c("loss", "win"))
-y_numeric <- as.numeric(transformed_train$white_result) - 1
 
-# Explainer
-explainer_ANN <- explain(model = ANN_final, 
-                         data = transformed_train[, -which(names(transformed_train) == "white_result")],
-                         y = y_numeric,
-                         label = "ANN Model")
-
-# Compute permutation-based feature importance for the ANN model
-fi_ANN <- model_parts(explainer = explainer_ANN, 
-                      type = "raw",
-                      loss_function = loss_accuracy)
-
-# Plot the feature importance
-plot(fi_ANN, max_vars = 20)
+vip(ANN_final, method = "permute", train = transformed_train, target = "white_result",
+    
+    metric = "roc_auc", reference_class = "Yes", pred_wrapper = prob_yes)
