@@ -215,7 +215,7 @@ ggplot(combined_df, aes(x = value, y = percentage, fill = dataset)) +
   scale_fill_manual(values = c("Full" = "purple", "Train" = "blue", "Test" = "green"))
 ```
 
-6. Tranforming data
+6. Transforming data
 ```{r}
 blueprint <- recipe(white_result ~ ., data = games_train) %>%
   step_string2factor(all_nominal_predictors()) %>%
@@ -526,5 +526,34 @@ SP_results <- confusionMatrix(transformed_test$white_result, SP_prediction)
 SP_results
 ```
 
+- Interpretable ML: Permutation Based Feature Importance
+```{r}
+# RF
+
+vip(RF_final)
+
+vip(RF_final, num_features = 20)
+
+vip(RF_final, num_features = 20, geom = "point")
 
 
+# XGB
+
+vip(XGB_final)
+
+vip(XGB_final, num_features = 20)
+
+vip(XGB_final, num_features = 20, geom = "point")
+
+# ANN
+
+prob_yes <- function(object, newdata) {                        # wrapper function
+  
+  predict(object, newdata = newdata, type = "prob")[, "Yes"]
+  
+}
+
+
+vip(ANN_final, method = "permute", train = transformed_train, target = "white_result",
+    
+    metric = "roc_auc", reference_class = "Yes", pred_wrapper = prob_yes)
