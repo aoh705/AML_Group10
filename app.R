@@ -134,7 +134,7 @@ ui <- fluidPage(
                  
                  selectInput("rf_type", "Random Forest Model Type", choices = c("classification", "numeric")),
                  
-                 numericInput("ntree", "Number of Trees:", value = 100),
+                 numericInput("nodes", "Number of Nodes per Tree:", value = 9),
                  
                  numericInput("mtry", "Number of Variables to Sample:", value = 3),
                  
@@ -156,9 +156,13 @@ ui <- fluidPage(
                             
                             #plotOutput("plot2")),
                    
-                   tabPanel("Random Forest Model Output",
+                   tabPanel("Random Forest Model Train Set Output",
                             
-                            verbatimTextOutput("model_output"))
+                            verbatimTextOutput("model_train_output")),
+                   
+                   tabPanel("Random Forest Model Test Set Output",
+                            
+                            verbatimTextOutput("model_test_output"))
                    
                  ),
                  
@@ -319,9 +323,11 @@ server <- function(input, output, session) {
       # changing target variable into binary classification
       df <- df %>%
         mutate(targetdf = ifelse(targetdf == input$target_choices[1], input$target_choices[1], input$target_choices[2]))
-      df[[target]] <- df[['targetdf']]
+      df[[target]] <- as.factor(df[['targetdf']])
       
-      df[[target]] <- as.numeric(as.factor(df[[target]]))
+      # ensure factor levels are valid names
+      levels(df[[target]]) <- make.names(levels(df[[target]]))
+      
       df <- df[, !names(df) %in% c('targetdf')]
       
       # making sure the split ratio chosen by user is numeric
@@ -352,10 +358,12 @@ server <- function(input, output, session) {
       transformed_test <- bake(blueprint_prep, new_data = before_test)
       
       # Check the class of transformed_train
+      
       print(class(transformed_train))
+      print(dim(transformed_train))  # Check dimensions
       
       hyperparameters <- data.frame(.mtry = input$mtry,
-                                    .min.node.size = input$ntree,
+                                    .min.node.size = input$nodes,
                                     .splitrule = "extratrees")
       
       print(class(hyperparameters))
@@ -365,20 +373,45 @@ server <- function(input, output, session) {
       
       print("after hyperparameters")
       
-      RF_final <- train(target_formula ~., 
+      print(class(input$mtry))
+      print(class(input$nodes))
+      
+      mtry <- as.numeric(input$mtry)
+      nodes <- as.numeric(input$nodes)
+      
+      RF_final <- train(target_formula, 
                         data = transformed_train,
-                        method = "rf",
+                        method = "ranger",
                         trControl = fitControl_final,
                         metric = "ROC",
-                        tuneGrid = data.frame(.mtry = input$mtry,
-                                              .min.node.size = input$ntree,
-                                              .splitrule = "extratrees"))
+                        tuneGrid = data.frame(.mtry = mtry,
+                                              .min.node.size = nodes,
+                                              .splitrule = "extratrees"),
+                        num.trees = 300)
       
       print("fit model")
       
-      #output$model_output <- renderPrint({
-        #print(RF_final)
-      #})
+      RF_pred_train <- predict(RF_final, newdata = transformed_train)
+      
+      RF_train_results <- confusionMatrix(transformed_train$white_result, RF_pred_train)
+      
+      print(RF_train_results)
+      
+      RF_Kappa <- RF_train_results$overall["Kappa"]
+      
+      RF_pred_test <- predict(RF_final, newdata = transformed_test)
+      
+      RF_test_results <- confusionMatrix(transformed_test$white_result, RF_pred_test)
+      
+      print(RF_test_results)
+      
+      output$model_train_output <- renderPrint({
+        print(RF_train_results)
+      })
+      
+      output$model_test_output <- renderPrint({
+        print(RF_test_results)
+      })
       
       
     } else if (input$rf_type == "numeric") {
