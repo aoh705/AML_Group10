@@ -1,23 +1,26 @@
-
-# R lab 10 - 04/16/24
-
-# Building Web Applications with Shiny Package
-
-
 library(shiny)
-
 library(shinythemes)
-
 library(shinycssloaders)
-
 library(tidyverse)
-
 library(ggExtra)
-
 library(data.table)
+library(caret)
+library(tidymodels)
+library(tidyverse)
+library(randomForest)
+library(xgboost)
+library(keras)
+library(vip)
+library(pROC)
+library(dplyr)
+library(MLmetrics)
 
+# be able to upload up to 100MB size file
+options(shiny.maxRequestSize = 100 * 1024^2)
 
-data_initial <- read.csv("chess_games_data.csv", header = TRUE)
+options(shiny.legacy.datatable = TRUE)
+
+data_initial <- read.csv("modified_games_data.csv", header = TRUE)
 
 
 # Define UI for application
@@ -50,7 +53,7 @@ ui <- fluidPage(
                
                sidebarPanel(
                  
-                 selectInput("dataset", "Dataset:", choices = c("Club Games Data", "Upload your own file")),
+                 selectInput("dataset", "Dataset:", choices = c("Chess Club Games Data", "Upload your own file")),
                  
                  conditionalPanel(condition = "input.dataset == 'Upload your own file'",
                                   
@@ -77,7 +80,7 @@ ui <- fluidPage(
              
     ),
     
-    tabPanel("Model",
+    tabPanel("EDA",
              
              titlePanel("Scatterplot"),
              
@@ -121,46 +124,47 @@ ui <- fluidPage(
     
     
     
-    tabPanel("Fourth Panel",
+    tabPanel("Model",
              
-             titlePanel("Histogram"),
+             titlePanel("Random Forest Model"),
              
              sidebarLayout(
                
                sidebarPanel(
                  
-                 selectInput("var", "Variable", choices = NULL), 
+                 selectInput("rf_type", "Random Forest Model Type", choices = c("classification", "numeric")),
                  
-                 numericInput("bins", "Number of bins", min = 1, max = 50, step = 1, value = 10),
+                 numericInput("ntree", "Number of Trees:", value = 100),
                  
-                 radioButtons("color", "Color of bins:",
-                              
-                              choices = list("Blue" = "blue", "Red" = "red", "Green" = "green"),
-                              
-                              selected = "blue"),
+                 numericInput("mtry", "Number of Variables to Sample:", value = 3),
                  
-                 actionButton("click","Submit")
+                 selectInput("data_split", "Data Split Ratio", choices = c(0.6, 0.65, 0.7, 0.75, 0.8)),
                  
-               ),
+                 checkboxGroupInput("target_choices", label = "Select Options (Choose Two) for Classification:",
+                                    
+                                    choices = NULL),
+                 
+                 actionButton("train", "Train Model")
+                
+               ), 
                
                mainPanel(
                  
                  tabsetPanel(
                    
-                   tabPanel("Histogram",
+                   #tabPanel("Random Forest Model",
                             
-                            plotOutput("plot2"))
+                            #plotOutput("plot2")),
                    
+                   tabPanel("Random Forest Model Output",
+                            
+                            verbatimTextOutput("model_output"))
                    
-                 )
+                 ),
                  
                )
                
-               
              )
-             
-             
-             
              
              
     )
@@ -228,6 +232,14 @@ server <- function(input, output, session) {
   
   ##
   
+  observeEvent(input$response, {
+    
+    updateCheckboxGroupInput(session, "target_choices", choices = unique(File()[[input$response]]))
+    
+  }) 
+  
+  ##
+  
   
   output$data_preview <- renderDataTable({
     
@@ -270,24 +282,112 @@ server <- function(input, output, session) {
   
   ##
   
-  plot2 <- eventReactive(input$click, 
+  #plot2 <- eventReactive(input$click, 
                          
-                         ggplot(data = File(), aes_string(x = input$var)) +
+                         #ggplot(data = File(), aes_string(x = input$var)) +
                            
-                           geom_histogram(binwidth = diff(range(File()[[input$var]]) / input$bins), fill = input$color, color = "black") +
+                           #geom_histogram(binwidth = diff(range(File()[[input$var]]) / input$bins), fill = input$color, color = "black") +
                            
-                           labs(x = input$var, y = "Frequency", title = "Histogram") +
+                           #labs(x = input$var, y = "Frequency", title = "Histogram") +
                            
-                           theme_minimal()
+                           #theme_minimal()
                          
-  )
+  #)
   
   
   
-  output$plot2 <- renderPlot({
+  #output$plot2 <- renderPlot({
     
-    plot2() 
+    #plot2() 
     
+  #})
+  
+  ##
+  
+  # Train random forest model
+  observeEvent(input$train, {
+    browser()
+    
+    set.seed(1)
+    
+    if (input$rf_type == "classification") {
+      # getting target variable input by user
+      target <- input$response
+      df <- File()
+      targetdf <- df[[target]]
+      
+      # changing target variable into binary classification
+      df <- df %>%
+        mutate(targetdf = ifelse(targetdf == input$target_choices[1], input$target_choices[1], input$target_choices[2]))
+      df[[target]] <- df[['targetdf']]
+      
+      df[[target]] <- as.numeric(as.factor(df[[target]]))
+      df <- df[, !names(df) %in% c('targetdf')]
+      
+      # making sure the split ratio chosen by user is numeric
+      data_split <- as.numeric(input$data_split)
+      
+      # splitting data
+      index <- createDataPartition(df[[target]], p = data_split, list = FALSE)
+      before_train <- df[index, ]
+      before_test <- df[-index, ]
+      
+      target_formula <- as.formula(paste(input$response, "~ ."))
+      
+      # standardizing and normalizing data
+      blueprint <- recipe(target_formula, data = before_train) %>%
+        step_string2factor(all_nominal_predictors()) %>%
+        step_nzv(all_predictors()) %>%
+        step_impute_knn(all_predictors()) %>%
+        step_center(all_numeric_predictors()) %>%
+        step_scale(all_numeric_predictors()) %>%
+        step_other(all_nominal(), threshold = 0.01, other = "other") %>%
+        step_dummy(all_nominal_predictors())
+      
+      print(blueprint)
+      
+      blueprint_prep <- prep(blueprint, training = before_train)
+      
+      transformed_train <- bake(blueprint_prep, new_data = before_train)
+      transformed_test <- bake(blueprint_prep, new_data = before_test)
+      
+      # Check the class of transformed_train
+      print(class(transformed_train))
+      
+      hyperparameters <- data.frame(.mtry = input$mtry,
+                                    .min.node.size = input$ntree,
+                                    .splitrule = "extratrees")
+      
+      print(class(hyperparameters))
+      
+      fitControl_final <- trainControl(method = "none",
+                                       classProbs = TRUE)
+      
+      print("after hyperparameters")
+      
+      RF_final <- train(target_formula ~., 
+                        data = transformed_train,
+                        method = "rf",
+                        trControl = fitControl_final,
+                        metric = "ROC",
+                        tuneGrid = data.frame(.mtry = input$mtry,
+                                              .min.node.size = input$ntree,
+                                              .splitrule = "extratrees"))
+      
+      print("fit model")
+      
+      #output$model_output <- renderPrint({
+        #print(RF_final)
+      #})
+      
+      
+    } else if (input$rf_type == "numeric") {
+      print("not classification")
+    }
+    
+    # Generate predictions
+    
+    # Display visualizations and interpretations
   })
   
 }

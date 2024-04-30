@@ -20,7 +20,6 @@ library(dplyr)
 library(MLmetrics)
 library(ggplot2)
 library(archive)
-library(readr)
 library(reticulate)
 
 # replace with personal python venv path (make sure the python version is compatible with computer OS (x86 vs arm64))
@@ -54,59 +53,6 @@ for (col in columns_to_na) {
 write.csv(chess_games_data, "chess_games_data.csv", row.names = FALSE)
 ```
 
-Exploratory Data Analysis:
-```{r}
-# See the first 6 rows
-head(chess_games_data)
-## The count of missing values in the dataset
-sum(is.na(chess_games_data))
-# Find the structure
-str(chess_games_data)
-# Print unique values in the white_result column
-unique(chess_games_data$white_result)
-# Summary
-summary(chess_games_data)
-
-numeric_columns <- sapply(chess_dataset, is.numeric)
-
-# Plotting the distribution of numerical features
-ggplot(gather(chess_dataset[, numeric_columns]), aes(value)) +
-  geom_histogram(bins = 30, fill = "red", color = "black") +
-  facet_wrap(~ key, scales = 'free_x') +
-  theme_minimal() +
-  labs(title = 'Distribution of Numerical Features', x = NULL, y = "Frequency")
-
-# TO-FIX:
-
-# chess_dataset$white_result <- factor(chess_dataset$white_result)
-
-# ggplot(gather(chess_dataset[, numeric_columns], key = 'feature', value = 'value'),
-#         aes(x = feature, y = value, fill = white_result)) +
-#         geom_boxplot() +
-#         facet_wrap(~ feature, scales = 'free') +
-#         theme_minimal() +
-#         labs(title = 'Box Plot of Numerical Features by Outcome', x = NULL, y = "Value")
-#         scale_fill_manual(values = c("win" = "green", "loss" = "red"))
-
-# Creating the feature rating difference between the white and the black players
-
-ELODiff <- with(chess_dataset, white_rating-black_rating)
-
-chess_dataset$rating_difference <- ELODiff
-         
-chess_dataset %>%
-  group_by(white_result) %>%
-  summarise(mean_difference = mean(rating_difference, na.rm = TRUE),
-            sd_difference = sd(rating_difference, na.rm = TRUE))
-         
-ggplot(chess_dataset, aes(x = white_result, y = rating_difference, fill = white_result)) +
- geom_boxplot() +
-  labs(title = "Rating Differences by Outcome", x = "Game outcome", y = "Rating difference") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-```
-
 Data cleaning/pre-processing:
 
 (Cleaning up the data)
@@ -127,6 +73,7 @@ chess_games_data <- chess_games_data[chess_games_data$white_result %in% c("win",
 unique(chess_games_data$white_result)
 ```
 
+
 3. Splitting the "pgn" column/variable to extract data
 - exploring the features that are present in this column, which is an array of features
 ```{python}
@@ -136,10 +83,12 @@ chess_games_data = r.chess_games_data
 
 pgn_column = chess_games_data.pgn
 
-feature_names = ['Event', 'Site', 'Start_Date', 'End_Date', 'Start_Time',
-                 'End_Time', 'Eco', 'EcoName', 'Round', 'Result']
+white_rc = chess_games_data.white_rating
+black_rc = chess_games_data.black_rating
+
+feature_names = ['Event', 'Site', 'Eco', 'EcoName']
                  
-feature_positions = [0, 1, 2, -6, -7, -5, -15, -14, 3, 6]
+feature_positions = [0, 1, -15, -14]
 
 # goes through each row of the chess_games_data dataset and creates a new column for each of the features we wanted
 # to extract from the dataset (the above list of features)
@@ -158,19 +107,25 @@ for i in range(0, len(pgn_column)):
   
 chess_games_data['EcoName'] = econame_col
 
-# extracting the moves of each player and total time of each player
-def extract_move(pgn):
-    if(pgn.find('{[') == -1):
-        original_list = pgn.split("\n")[-2].split()
-        toberemoved_list = pgn.split("\n")[-2].split()[::3]
-        new_list = [x for x in original_list if x not in toberemoved_list]
-        return new_list
-    else:
-        return pgn.split("\n")[-2].split()[1::4]
-      
-chess_games_data['Moves'] = pgn_column.apply(extract_move)
-
 r.chess_games_data = chess_games_data
+```
+
+Make rating difference column:
+```{r}
+ELODiff <- with(chess_games_data, white_rating-black_rating)
+
+chess_games_data$rating_difference <- ELODiff
+```
+
+Take out fen, Site, and pgn columns
+```{r}
+chess_games_data <- select(chess_games_data, -c('fen', 'Site', 'pgn'))
+colnames(chess_games_data)
+```
+
+Write changed data into a .csv file for saving purposes:
+```{r}
+write.csv(chess_games_data, "modified_games_data.csv", row.names = FALSE)
 ```
 
 - EDA (after cleaning up data):
@@ -180,10 +135,67 @@ ggplot(data = chess_games_data) + geom_bar(aes(x = white_result),fill = "blue") 
        x = "Outcomes", y = "Count") + theme_bw()
 ```
 
+```{r}
+# See the first 6 rows
+head(chess_games_data)
+## The count of missing values in the dataset
+sum(is.na(chess_games_data))
+# Find the structure
+str(chess_games_data)
+# Print unique values in the white_result column
+unique(chess_games_data$white_result)
+# Summary
+summary(chess_games_data)
+
+numeric_columns <- sapply(chess_games_data, is.numeric)
+
+# Plotting the distribution of numerical features
+ggplot(gather(chess_games_data[, numeric_columns]), aes(value)) +
+  geom_histogram(bins = 30, fill = "red", color = "black") +
+  facet_wrap(~ key, scales = 'free_x') +
+  theme_minimal() +
+  labs(title = 'Distribution of Numerical Features', x = NULL, y = "Frequency")
+
+# TO-FIX:
+
+# chess_dataset$white_result <- factor(chess_dataset$white_result)
+
+# ggplot(gather(chess_dataset[, numeric_columns], key = 'feature', value = 'value'),
+#         aes(x = feature, y = value, fill = white_result)) +
+#         geom_boxplot() +
+#         facet_wrap(~ feature, scales = 'free') +
+#         theme_minimal() +
+#         labs(title = 'Box Plot of Numerical Features by Outcome', x = NULL, y = "Value")
+#         scale_fill_manual(values = c("win" = "green", "loss" = "red"))
+
+# Creating the feature rating difference between the white and the black players
+
+ELODiff <- with(chess_games_data, white_rating-black_rating)
+
+chess_games_data$rating_difference <- ELODiff
+         
+chess_games_data %>%
+  group_by(white_result) %>%
+  summarise(mean_difference = mean(rating_difference, na.rm = TRUE),
+            sd_difference = sd(rating_difference, na.rm = TRUE))
+         
+ggplot(chess_games_data, aes(x = white_result, y = rating_difference, fill = white_result)) +
+ geom_boxplot() +
+  labs(title = "Rating Differences by Outcome", x = "Game outcome", y = "Rating difference") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
 (plotting econame -- type of opening move -- with wins and losses):
 ```{r}
-
+ggplot(chess_dataset, aes(x = white_result, y = rating_difference, fill = white_result)) +
+ geom_boxplot() +
+  labs(title = "Rating Differences by Outcome", x = "Game outcome", y = "Rating difference") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
 
 
 4. Data Splitting
@@ -194,6 +206,20 @@ index <- createDataPartition(chess_games_data$`white_result`, p = 0.70, list = F
 games_train <- chess_games_data[index, ]
 games_test <- chess_games_data[-index, ]
 ```
+
+- ensuring distribution of target variable is the same
+```{r}
+# training data
+ggplot(data = games_train) + geom_bar(aes(x = white_result),fill = "blue") + 
+  labs(title = "Frequency of different outcomes for white players",
+       x = "Outcomes", y = "Count") + theme_bw()
+
+# testing data
+ggplot(data = games_test) + geom_bar(aes(x = white_result),fill = "blue") + 
+  labs(title = "Frequency of different outcomes for white players",
+       x = "Outcomes", y = "Count") + theme_bw()
+```
+
 
 5. Combine the datasets into one data frame with an additional column indicating the dataset source
 ```{r}
