@@ -41,7 +41,10 @@ ui <- fluidPage(
              
              mainPanel(
                
-               helpText("STAT 3106: Applied Machine Learning - Final Project for Group 10"))
+               helpText("STAT 3106: Applied Machine Learning - Final Project for Group 10"),
+               
+               "Welcome to Group 10's Final Project. Authors: Aimee Oh, Phebe Lew, Sean Le Van"
+               )
              
     ),
     
@@ -121,9 +124,33 @@ ui <- fluidPage(
              
     ),
     
-    
-    
-    
+    tabPanel("Data Pre-Processing",
+             
+             titlePanel("Preprocessing"),
+             
+             sidebarLayout(
+               
+               sidebarPanel(
+                 
+                 checkboxGroupInput("column_choices", label = "Select Columns to exclude:",
+                                    
+                                    choices = NULL),
+                 
+                 actionButton("data_clean", "Submit")
+                 
+               ),
+               
+               mainPanel(
+                 
+                 dataTableOutput("modified_preview")
+                   
+                 )
+                 
+               )
+               
+               
+    ),
+             
     tabPanel("Model",
              
              titlePanel("Random Forest Model"),
@@ -132,20 +159,25 @@ ui <- fluidPage(
                
                sidebarPanel(
                  
-                 selectInput("rf_type", "Random Forest Model Type", choices = c("classification", "numeric")),
+                 selectInput("rf_type", "Random Forest Model Type", choices = c("numeric", "classification")),
                  
                  numericInput("nodes", "Number of Nodes per Tree:", value = 9),
                  
-                 numericInput("mtry", "Number of Variables to Sample:", value = 3),
+                 numericInput("mtry", "Number of Variables to Sample (mtry):", value = 3),
                  
                  selectInput("data_split", "Data Split Ratio", choices = c(0.6, 0.65, 0.7, 0.75, 0.8)),
                  
-                 checkboxGroupInput("target_choices", label = "Select Options (Choose Two) for Classification:",
-                                    
-                                    choices = NULL),
+                 uiOutput("dynamic_select_ui"),
+                 
+                 conditionalPanel(
+                   
+                   condition = "input.rf_type == classification",
+                   
+                   
+                 ),
                  
                  actionButton("train", "Train Model")
-                
+                 
                ), 
                
                mainPanel(
@@ -153,16 +185,20 @@ ui <- fluidPage(
                  tabsetPanel(
                    
                    #tabPanel("Random Forest Model",
-                            
-                            #plotOutput("plot2")),
+                   
+                   #plotOutput("plot2")),
                    
                    tabPanel("Random Forest Model Train Set Output",
                             
-                            verbatimTextOutput("model_train_output")),
+                            verbatimTextOutput("model_train_output"),
+                            
+                            plotOutput("train_plot")),
                    
                    tabPanel("Random Forest Model Test Set Output",
                             
-                            verbatimTextOutput("model_test_output"))
+                            verbatimTextOutput("model_test_output"),
+                            
+                            plotOutput("test_plot"))
                    
                  ),
                  
@@ -170,16 +206,11 @@ ui <- fluidPage(
                
              )
              
-             
     )
-    
-    
+             
+    ),
     
   )
-  
-  
-  
-)
 
 
 # Define Server
@@ -236,11 +267,42 @@ server <- function(input, output, session) {
   
   ##
   
+  output$dynamic_select_ui <- renderUI({
+    
+    if (input$rf_type == "classification") {
+      
+      checkboxGroupInput("target_choices", label = "Select Options (Choose Two) for Classification:",
+                         
+                         choices = NULL)
+      
+    }
+    
+  })
+  
+  ##
+  
   observeEvent(input$response, {
     
     updateCheckboxGroupInput(session, "target_choices", choices = unique(File()[[input$response]]))
     
+  })
+  
+  ##
+  
+  observeEvent(input$response, {
+    
+    updateCheckboxGroupInput(session, "column_choices", choices = colnames(File()))
+    
+  })
+  
+  ##
+  
+  output$modified_preview <- renderDataTable({
+    
+    data()
+    
   }) 
+  
   
   ##
   
@@ -283,28 +345,38 @@ server <- function(input, output, session) {
     
   })
   
+  ##
+  
+  data <- observeEvent(input$data_clean, {
+    
+    selected_columns <- input$column_choices
+    df <- File()
+    
+    # Check if any columns are selected
+    if (length(selected_columns) > 0) {
+      
+      # Subset the original data frame to exclude selected columns
+      df <- df[, !colnames(df) %in% selected_columns, drop = FALSE]
+      
+      # Use df for further processing or update the UI
+      # For example, you can render the modified data frame using renderDataTable()
+      output$modified_preview <- renderDataTable({
+        df
+      })
+      
+    } else {
+      # If no columns are selected, use the original data frame
+      output$modified_preview <- renderDataTable({
+        df
+      })
+    }
+    
+    return(df)
+  })
   
   ##
   
-  #plot2 <- eventReactive(input$click, 
-                         
-                         #ggplot(data = File(), aes_string(x = input$var)) +
-                           
-                           #geom_histogram(binwidth = diff(range(File()[[input$var]]) / input$bins), fill = input$color, color = "black") +
-                           
-                           #labs(x = input$var, y = "Frequency", title = "Histogram") +
-                           
-                           #theme_minimal()
-                         
-  #)
-  
-  
-  
-  #output$plot2 <- renderPlot({
-    
-    #plot2() 
-    
-  #})
+  # render RF_train_plot
   
   ##
   
@@ -393,7 +465,7 @@ server <- function(input, output, session) {
       
       RF_pred_train <- predict(RF_final, newdata = transformed_train)
       
-      RF_train_results <- confusionMatrix(transformed_train$white_result, RF_pred_train)
+      RF_train_results <- confusionMatrix(transformed_train[[target]], RF_pred_train)
       
       print(RF_train_results)
       
@@ -401,7 +473,7 @@ server <- function(input, output, session) {
       
       RF_pred_test <- predict(RF_final, newdata = transformed_test)
       
-      RF_test_results <- confusionMatrix(transformed_test$white_result, RF_pred_test)
+      RF_test_results <- confusionMatrix(transformed_test[[target]], RF_pred_test)
       
       print(RF_test_results)
       
@@ -416,9 +488,120 @@ server <- function(input, output, session) {
       
     } else if (input$rf_type == "numeric") {
       print("not classification")
+      
+      # getting target variable input by user
+      target <- input$response
+      df <- File()
+      
+      # making sure the split ratio chosen by user is numeric
+      data_split <- as.numeric(input$data_split)
+      
+      # splitting data
+      index <- createDataPartition(df[[target]], p = data_split, list = FALSE)
+      before_train <- df[index, ]
+      before_test <- df[-index, ]
+      
+      target_formula <- as.formula(paste(input$response, "~ ."))
+      
+      # standardizing and normalizing data
+      blueprint <- recipe(target_formula, data = before_train) %>%
+        step_string2factor(all_nominal_predictors()) %>%
+        step_nzv(all_predictors()) %>%
+        step_impute_knn(all_predictors()) %>%
+        step_center(all_numeric_predictors()) %>%
+        step_scale(all_numeric_predictors()) %>%
+        step_other(all_nominal(), threshold = 0.01, other = "other") %>%
+        step_dummy(all_nominal_predictors()) %>%
+        step_log(-all_numeric_predictors() %>% nearZeroVar())
+      
+      print(blueprint)
+      
+      blueprint_prep <- prep(blueprint, training = before_train)
+      
+      transformed_train <- bake(blueprint_prep, new_data = before_train)
+      transformed_test <- bake(blueprint_prep, new_data = before_test)
+      
+      fitControl_final <- trainControl(method = "cv",
+                                       number = 5,
+                                       verboseIter = TRUE,
+                                       returnData = FALSE,
+                                       returnResamp = "final",
+                                       classProbs = FALSE)
+      
+      mtry <- as.numeric(input$mtry)
+      nodes <- as.numeric(input$nodes)
+      
+      RF_final <- train(target_formula, 
+                        data = transformed_train,
+                        method = "rf",
+                        trControl = fitControl_final,
+                        metric = "RMSE",
+                        tuneGrid = expand.grid(mtry = mtry),
+                        importance = TRUE,
+                        ntree = 300)
+      
+      print("fit model")
+      
+      RF_pred_train <- predict(RF_final, newdata = transformed_train)
+      
+      RF_train_rmse <- sqrt(mean((transformed_train[[target]] - RF_pred_train)^2))
+      
+      print(RF_train_rmse)
+      
+      
+      RF_pred_test <- predict(RF_final, newdata = transformed_test)
+      
+      print((transformed_test[[target]] - RF_pred_test)^2)
+      
+      RF_test_rmse <- sqrt(mean((transformed_test[[target]] - RF_pred_test)^2))
+      
+      print(RF_test_rmse)
+      
+      output$model_train_output <- renderPrint({
+        print(paste("RMSE:", RF_train_rmse))
+      })
+      
+      output$train_plot <- renderPlot({
+        
+        prediction_df <- data.frame(Actual = transformed_train[[target]], Predicted = RF_pred_train)
+        
+        graph <- ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+          geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+          geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+          labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+          theme_minimal()  # Set plot theme
+        
+        graph
+        
+      })
+      
+      output$model_test_output <- renderPrint({
+        print(paste("RMSE:", RF_test_rmse))
+        
+        prediction_df <- data.frame(Actual = transformed_test[[target]], Predicted = RF_pred_test)
+        
+        ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+          geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+          geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+          labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+          theme_minimal()  # Set plot theme
+      })
+      
+      output$test_plot <- renderPlot({
+        
+        prediction_df <- data.frame(Actual = transformed_test[[target]], Predicted = RF_pred_test)
+        
+        graph <- ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+          geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+          geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+          labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+          theme_minimal()  # Set plot theme
+        
+        graph
+        
+      })
+      
     }
-    
-    # Generate predictions
     
     # Display visualizations and interpretations
   })
