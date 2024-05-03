@@ -159,11 +159,72 @@ ui <- fluidPage(
                
                sidebarPanel(
                  
-                 selectInput("rf_type", "Random Forest Model Type", choices = c("numeric", "classification")),
+                 selectInput("model_type", "Model to train", choices = c("Random Forest", "Gradient Boosting Machine")),
                  
-                 numericInput("nodes", "Number of Nodes per Tree:", value = 9),
+                 selectInput("type", "Model Type", choices = c("regression", "classification")),
                  
-                 numericInput("mtry", "Number of Variables to Sample (mtry):", value = 3),
+                 uiOutput("rf_select_nodes_ui"),
+                 
+                 conditionalPanel(
+                   
+                   condition = "input.model_type == Random Forest",
+                   
+                   
+                 ),
+                 
+                 uiOutput("rf_select_mtry_ui"),
+                 
+                 conditionalPanel(
+                   
+                   condition = "input.model_type == Random Forest",
+                   
+                   
+                 ),
+                 
+                 uiOutput("xg_select_nrounds_ui"),
+                 
+                 conditionalPanel(
+                   
+                   condition = "input.model_type == Gradient Boosting Machine",
+                   
+                   
+                 ),
+                 
+                 uiOutput("xg_select_maxdepth_ui"),
+                 
+                 conditionalPanel(
+                   
+                   condition = "input.model_type == Gradient Boosting Machine",
+                   
+                   
+                 ),
+                 
+                 uiOutput("xg_select_eta_ui"),
+                 
+                 conditionalPanel(
+                   
+                   condition = "input.model_type == Gradient Boosting Machine",
+                   
+                   
+                 ),
+                 
+                 uiOutput("xg_select_minchildw_ui"),
+                 
+                 conditionalPanel(
+                   
+                   condition = "input.model_type == Gradient Boosting Machine",
+                   
+                   
+                 ),
+                 
+                 uiOutput("xg_select_subsample_ui"),
+                 
+                 conditionalPanel(
+                   
+                   condition = "input.model_type == Gradient Boosting Machine",
+                   
+                   
+                 ),
                  
                  selectInput("data_split", "Data Split Ratio", choices = c(0.6, 0.65, 0.7, 0.75, 0.8)),
                  
@@ -171,7 +232,7 @@ ui <- fluidPage(
                  
                  conditionalPanel(
                    
-                   condition = "input.rf_type == classification",
+                   condition = "input.type == classification",
                    
                    
                  ),
@@ -184,17 +245,13 @@ ui <- fluidPage(
                  
                  tabsetPanel(
                    
-                   #tabPanel("Random Forest Model",
-                   
-                   #plotOutput("plot2")),
-                   
-                   tabPanel("Random Forest Model Train Set Output",
+                   tabPanel("Model Train Set Output",
                             
                             verbatimTextOutput("model_train_output"),
                             
                             plotOutput("train_plot")),
                    
-                   tabPanel("Random Forest Model Test Set Output",
+                   tabPanel("Model Test Set Output",
                             
                             verbatimTextOutput("model_test_output"),
                             
@@ -269,7 +326,7 @@ server <- function(input, output, session) {
   
   output$dynamic_select_ui <- renderUI({
     
-    if (input$rf_type == "classification") {
+    if(input$type == "classification"){
       
       checkboxGroupInput("target_choices", label = "Select Options (Choose Two) for Classification:",
                          
@@ -281,9 +338,86 @@ server <- function(input, output, session) {
   
   ##
   
-  observeEvent(input$response, {
+  observeEvent(input$type, {
     
     updateCheckboxGroupInput(session, "target_choices", choices = unique(File()[[input$response]]))
+    
+  })
+  
+  ##
+  
+  output$rf_select_nodes_ui <- renderUI({
+    
+    if (input$model_type == "Random Forest") {
+      
+      numericInput("nodes", "Number of Nodes per Tree:", value = 9)
+    }
+    
+  })
+  
+  ##
+  
+  output$rf_select_mtry_ui <- renderUI({
+    
+    if (input$model_type == "Random Forest") {
+      
+      numericInput("mtry", "Number of Variables to Sample (mtry):", value = 3)
+    }
+    
+  })
+  
+  ##
+  
+  output$xg_select_nrounds_ui <- renderUI({
+    
+    if (input$model_type == "Gradient Boosting Machine") {
+      
+      selectInput("nrounds", "Number of Iterations (nrounds):", choices = c(100,200,300))
+    }
+    
+  })
+  
+  ##
+  
+  output$xg_select_maxdepth_ui <- renderUI({
+    
+    if (input$model_type == "Gradient Boosting Machine") {
+      
+      numericInput("maxdepth", "Maximum Depth of Tree:", value = 4)
+    }
+    
+  })
+  
+  ##
+  
+  output$xg_select_eta_ui <- renderUI({
+    
+    if (input$model_type == "Gradient Boosting Machine") {
+      
+      selectInput("eta", "Learning Rate:", c(0.05, 0.1, 0.2, 0.3))
+    }
+    
+  })
+  
+  ##
+  
+  output$xg_select_minchildw_ui <- renderUI({
+    
+    if (input$model_type == "Gradient Boosting Machine") {
+      
+      selectInput("minchildw", "Minimum Child Weight:", choices = c(0.05, 0.1, 0.2, 0.3))
+    }
+    
+  })
+  
+  ##
+  
+  output$xg_select_subsample_ui <- renderUI({
+    
+    if (input$model_type == "Gradient Boosting Machine") {
+      
+      selectInput("subsample", "Subsampling ratio:", choices = c(0.4, 0.6))
+    }
     
   })
   
@@ -386,224 +520,428 @@ server <- function(input, output, session) {
     
     set.seed(1)
     
-    if (input$rf_type == "classification") {
-      # getting target variable input by user
-      target <- input$response
-      df <- File()
-      targetdf <- df[[target]]
-      
-      # changing target variable into binary classification
-      df <- df %>%
-        mutate(targetdf = ifelse(targetdf == input$target_choices[1], input$target_choices[1], input$target_choices[2]))
-      df[[target]] <- as.factor(df[['targetdf']])
-      
-      # ensure factor levels are valid names
-      levels(df[[target]]) <- make.names(levels(df[[target]]))
-      
-      df <- df[, !names(df) %in% c('targetdf')]
-      
-      # making sure the split ratio chosen by user is numeric
-      data_split <- as.numeric(input$data_split)
-      
-      # splitting data
-      index <- createDataPartition(df[[target]], p = data_split, list = FALSE)
-      before_train <- df[index, ]
-      before_test <- df[-index, ]
-      
-      target_formula <- as.formula(paste(input$response, "~ ."))
-      
-      # standardizing and normalizing data
-      blueprint <- recipe(target_formula, data = before_train) %>%
-        step_string2factor(all_nominal_predictors()) %>%
-        step_nzv(all_predictors()) %>%
-        step_impute_knn(all_predictors()) %>%
-        step_center(all_numeric_predictors()) %>%
-        step_scale(all_numeric_predictors()) %>%
-        step_other(all_nominal(), threshold = 0.01, other = "other") %>%
-        step_dummy(all_nominal_predictors())
-      
-      print(blueprint)
-      
-      blueprint_prep <- prep(blueprint, training = before_train)
-      
-      transformed_train <- bake(blueprint_prep, new_data = before_train)
-      transformed_test <- bake(blueprint_prep, new_data = before_test)
-      
-      # Check the class of transformed_train
-      
-      print(class(transformed_train))
-      print(dim(transformed_train))  # Check dimensions
-      
-      hyperparameters <- data.frame(.mtry = input$mtry,
-                                    .min.node.size = input$nodes,
-                                    .splitrule = "extratrees")
-      
-      print(class(hyperparameters))
-      
-      fitControl_final <- trainControl(method = "none",
-                                       classProbs = TRUE)
-      
-      print("after hyperparameters")
-      
-      print(class(input$mtry))
-      print(class(input$nodes))
-      
-      mtry <- as.numeric(input$mtry)
-      nodes <- as.numeric(input$nodes)
-      
-      RF_final <- train(target_formula, 
-                        data = transformed_train,
-                        method = "ranger",
-                        trControl = fitControl_final,
-                        metric = "ROC",
-                        tuneGrid = data.frame(.mtry = mtry,
-                                              .min.node.size = nodes,
-                                              .splitrule = "extratrees"),
-                        num.trees = 300)
-      
-      print("fit model")
-      
-      RF_pred_train <- predict(RF_final, newdata = transformed_train)
-      
-      RF_train_results <- confusionMatrix(transformed_train[[target]], RF_pred_train)
-      
-      print(RF_train_results)
-      
-      RF_Kappa <- RF_train_results$overall["Kappa"]
-      
-      RF_pred_test <- predict(RF_final, newdata = transformed_test)
-      
-      RF_test_results <- confusionMatrix(transformed_test[[target]], RF_pred_test)
-      
-      print(RF_test_results)
-      
-      output$model_train_output <- renderPrint({
-        print(RF_train_results)
-      })
-      
-      output$model_test_output <- renderPrint({
-        print(RF_test_results)
-      })
-      
-      
-    } else if (input$rf_type == "numeric") {
-      print("not classification")
-      
-      # getting target variable input by user
-      target <- input$response
-      df <- File()
-      
-      # making sure the split ratio chosen by user is numeric
-      data_split <- as.numeric(input$data_split)
-      
-      # splitting data
-      index <- createDataPartition(df[[target]], p = data_split, list = FALSE)
-      before_train <- df[index, ]
-      before_test <- df[-index, ]
-      
-      target_formula <- as.formula(paste(input$response, "~ ."))
-      
-      # standardizing and normalizing data
-      blueprint <- recipe(target_formula, data = before_train) %>%
-        step_string2factor(all_nominal_predictors()) %>%
-        step_nzv(all_predictors()) %>%
-        step_impute_knn(all_predictors()) %>%
-        step_center(all_numeric_predictors()) %>%
-        step_scale(all_numeric_predictors()) %>%
-        step_other(all_nominal(), threshold = 0.01, other = "other") %>%
-        step_dummy(all_nominal_predictors()) %>%
-        step_log(-all_numeric_predictors() %>% nearZeroVar())
-      
-      print(blueprint)
-      
-      blueprint_prep <- prep(blueprint, training = before_train)
-      
-      transformed_train <- bake(blueprint_prep, new_data = before_train)
-      transformed_test <- bake(blueprint_prep, new_data = before_test)
-      
-      fitControl_final <- trainControl(method = "cv",
-                                       number = 5,
-                                       verboseIter = TRUE,
-                                       returnData = FALSE,
-                                       returnResamp = "final",
-                                       classProbs = FALSE)
-      
-      mtry <- as.numeric(input$mtry)
-      nodes <- as.numeric(input$nodes)
-      
-      RF_final <- train(target_formula, 
-                        data = transformed_train,
-                        method = "rf",
-                        trControl = fitControl_final,
-                        metric = "RMSE",
-                        tuneGrid = expand.grid(mtry = mtry),
-                        importance = TRUE,
-                        ntree = 300)
-      
-      print("fit model")
-      
-      RF_pred_train <- predict(RF_final, newdata = transformed_train)
-      
-      RF_train_rmse <- sqrt(mean((transformed_train[[target]] - RF_pred_train)^2))
-      
-      print(RF_train_rmse)
-      
-      
-      RF_pred_test <- predict(RF_final, newdata = transformed_test)
-      
-      print((transformed_test[[target]] - RF_pred_test)^2)
-      
-      RF_test_rmse <- sqrt(mean((transformed_test[[target]] - RF_pred_test)^2))
-      
-      print(RF_test_rmse)
-      
-      output$model_train_output <- renderPrint({
-        print(paste("RMSE:", RF_train_rmse))
-      })
-      
-      output$train_plot <- renderPlot({
+    if (input$model_type == "Random Forest"){
+      if (input$type == "classification") {
+        # getting target variable input by user
+        target <- input$response
+        df <- File()
+        targetdf <- df[[target]]
         
-        prediction_df <- data.frame(Actual = transformed_train[[target]], Predicted = RF_pred_train)
+        # changing target variable into binary classification
+        df <- df %>%
+          mutate(targetdf = ifelse(targetdf == input$target_choices[1], input$target_choices[1], input$target_choices[2]))
+        df[[target]] <- as.factor(df[['targetdf']])
         
-        graph <- ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
-          geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
-          geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
-          labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
-          theme_minimal()  # Set plot theme
+        # ensure factor levels are valid names
+        levels(df[[target]]) <- make.names(levels(df[[target]]))
         
-        graph
+        df <- df[, !names(df) %in% c('targetdf')]
         
-      })
+        # making sure the split ratio chosen by user is numeric
+        data_split <- as.numeric(input$data_split)
+        
+        # splitting data
+        index <- createDataPartition(df[[target]], p = data_split, list = FALSE)
+        before_train <- df[index, ]
+        before_test <- df[-index, ]
+        
+        target_formula <- as.formula(paste(input$response, "~ ."))
+        
+        # standardizing and normalizing data
+        blueprint <- recipe(target_formula, data = before_train) %>%
+          step_string2factor(all_nominal_predictors()) %>%
+          step_nzv(all_predictors()) %>%
+          step_impute_knn(all_predictors()) %>%
+          step_center(all_numeric_predictors()) %>%
+          step_scale(all_numeric_predictors()) %>%
+          step_other(all_nominal(), threshold = 0.01, other = "other") %>%
+          step_dummy(all_nominal_predictors())
+        
+        print(blueprint)
+        
+        blueprint_prep <- prep(blueprint, training = before_train)
+        
+        transformed_train <- bake(blueprint_prep, new_data = before_train)
+        transformed_test <- bake(blueprint_prep, new_data = before_test)
+        
+        # Check the class of transformed_train
+        
+        print(class(transformed_train))
+        print(dim(transformed_train))  # Check dimensions
+        
+        hyperparameters <- data.frame(.mtry = input$mtry,
+                                      .min.node.size = input$nodes,
+                                      .splitrule = "extratrees")
+        
+        print(class(hyperparameters))
+        
+        fitControl_final <- trainControl(method = "cv",
+                                         number = 5,
+                                         classProbs = TRUE,
+                                         summaryFunction = twoClassSummary)
+        
+        print("after hyperparameters")
+        
+        mtry <- as.numeric(input$mtry)
+        nodes <- as.numeric(input$nodes)
+        
+        RF_final <- train(target_formula, 
+                          data = transformed_train,
+                          method = "ranger",
+                          trControl = fitControl_final,
+                          metric = "ROC",
+                          tuneGrid = data.frame(mtry = mtry,
+                                                min.node.size = nodes,
+                                                splitrule = "gini"),
+                          num.trees = 300)
+        
+        RF_pred_train <- predict(RF_final, newdata = transformed_train)
+        
+        RF_train_results <- confusionMatrix(transformed_train[[target]], RF_pred_train)
+        
+        RF_Kappa <- RF_train_results$overall["Kappa"]
+        
+        RF_pred_test <- predict(RF_final, newdata = transformed_test)
+        
+        RF_test_results <- confusionMatrix(transformed_test[[target]], RF_pred_test)
+        
+        output$model_train_output <- renderPrint({
+          print(RF_train_results)
+        })
+        
+        output$model_test_output <- renderPrint({
+          print(RF_test_results)
+        })
+        
+        
+      } else if (input$model_type == "regression") {
+        print("regression")
+        
+        # getting target variable input by user
+        target <- input$response
+        df <- File()
+        
+        # making sure the split ratio chosen by user is numeric
+        data_split <- as.numeric(input$data_split)
+        
+        # splitting data
+        index <- createDataPartition(df[[target]], p = data_split, list = FALSE)
+        before_train <- df[index, ]
+        before_test <- df[-index, ]
+        
+        target_formula <- as.formula(paste(input$response, "~ ."))
+        
+        # standardizing and normalizing data
+        blueprint <- recipe(target_formula, data = before_train) %>%
+          step_string2factor(all_nominal_predictors()) %>%
+          step_nzv(all_predictors()) %>%
+          step_impute_knn(all_predictors()) %>%
+          step_center(all_numeric_predictors()) %>%
+          step_scale(all_numeric_predictors()) %>%
+          step_other(all_nominal(), threshold = 0.01, other = "other") %>%
+          step_dummy(all_nominal_predictors()) %>%
+          step_log(-all_numeric_predictors() %>% nearZeroVar()) %>%
+          step_naomit(everything())
+        
+        print(blueprint)
+        
+        blueprint_prep <- prep(blueprint, training = before_train)
+        
+        transformed_train <- bake(blueprint_prep, new_data = before_train)
+        transformed_test <- bake(blueprint_prep, new_data = before_test)
+        
+        fitControl_final <- trainControl(method = "cv",
+                                         number = 5,
+                                         verboseIter = TRUE,
+                                         returnData = FALSE,
+                                         returnResamp = "final",
+                                         classProbs = FALSE)
+        
+        mtry <- as.numeric(input$mtry)
+        nodes <- as.numeric(input$nodes)
+        
+        RF_final <- train(target_formula, 
+                          data = transformed_train,
+                          method = "rf",
+                          trControl = fitControl_final,
+                          metric = "RMSE",
+                          tuneGrid = expand.grid(mtry = mtry),
+                          importance = TRUE,
+                          ntree = 300)
+        
+        print("fit model")
+        
+        RF_pred_train <- predict(RF_final, newdata = transformed_train)
+        
+        RF_train_rmse <- sqrt(mean((transformed_train[[target]] - RF_pred_train)^2))
+        
+        print(RF_train_rmse)
+        
+        
+        RF_pred_test <- predict(RF_final, newdata = transformed_test)
+        
+        print((transformed_test[[target]] - RF_pred_test)^2)
+        
+        RF_test_rmse <- sqrt(mean((transformed_test[[target]] - RF_pred_test)^2))
+        
+        print(RF_test_rmse)
+        
+        output$model_train_output <- renderPrint({
+          print(paste("RMSE:", RF_train_rmse))
+        })
+        
+        output$train_plot <- renderPlot({
+          
+          prediction_df <- data.frame(Actual = transformed_train[[target]], Predicted = RF_pred_train)
+          
+          graph <- ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+            geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+            geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+            labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+            theme_minimal()  # Set plot theme
+          
+          graph
+          
+        })
+        
+        output$model_test_output <- renderPrint({
+          print(paste("RMSE:", RF_test_rmse))
+          
+          prediction_df <- data.frame(Actual = transformed_test[[target]], Predicted = RF_pred_test)
+          
+          ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+            geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+            geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+            labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+            theme_minimal()  # Set plot theme
+        })
+        
+        output$test_plot <- renderPlot({
+          
+          prediction_df <- data.frame(Actual = transformed_test[[target]], Predicted = RF_pred_test)
+          
+          graph <- ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+            geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+            geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+            labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+            theme_minimal()  # Set plot theme
+          
+          graph
+          
+        })
+        
+      }
+    }
+    else if(input$model_type == "Gradient Boosting Machine"){
+      if (input$type == "classification") {
+        # getting target variable input by user
+        target <- input$response
+        df <- File()
+        targetdf <- df[[target]]
+        
+        # changing target variable into binary classification
+        df <- df %>%
+          mutate(targetdf = ifelse(targetdf == input$target_choices[1], input$target_choices[1], input$target_choices[2]))
+        df[[target]] <- as.factor(df[['targetdf']])
+        
+        print(dim(df[[target]]))
+        
+        # ensure factor levels are valid names
+        levels(df[[target]]) <- make.names(levels(df[[target]]))
+        
+        df <- df[, !names(df) %in% c('targetdf')]
+        
+        # making sure the split ratio chosen by user is numeric
+        data_split <- as.numeric(input$data_split)
+        
+        # splitting data
+        index <- createDataPartition(df[[target]], p = data_split, list = FALSE)
+        before_train <- df[index, ]
+        before_test <- df[-index, ]
+        
+        target_formula <- as.formula(paste(input$response, "~ ."))
+        
+        # standardizing and normalizing data
+        blueprint <- recipe(target_formula, data = before_train) %>%
+          step_string2factor(all_nominal_predictors()) %>%
+          step_nzv(all_predictors()) %>%
+          step_impute_knn(all_predictors()) %>%
+          step_center(all_numeric_predictors()) %>%
+          step_scale(all_numeric_predictors()) %>%
+          step_other(all_nominal(), threshold = 0.01, other = "other") %>%
+          step_dummy(all_nominal_predictors())
+        
+        print(blueprint)
+        
+        blueprint_prep <- prep(blueprint, training = before_train)
+        
+        transformed_train <- bake(blueprint_prep, new_data = before_train)
+        transformed_test <- bake(blueprint_prep, new_data = before_test)
+        
+        # Check the class of transformed_train
+        
+        print(class(transformed_train))
+        print(dim(transformed_train))  # Check dimensions
+        
+        fitControl_final <- trainControl(method = "none",
+                                         classProbs = TRUE)
+        
+        print("after hyperparameters")
+        
+        XG_final <- train(target_formula, 
+                          data = transformed_train,
+                          method = "xgbTree",
+                          trControl = fitControl_final,
+                          metric = "ROC",
+                          tuneGrid = expand.grid(nrounds = input$nrounds,   
+                                                 max_depth = input$maxdepth, 
+                                                 eta = input$eta,    
+                                                 min_child_weight = input$minchildw, 
+                                                 subsample = input$subsample, 
+                                                 gamma = 0,
+                                                 colsample_bytree = 1))
+        
+        print("fit model")
+        
+        XG_pred_train <- predict(XG_final, newdata = transformed_train)
+        
+        XG_train_results <- confusionMatrix(transformed_train[[target]], XG_pred_train)
+        
+        print(XG_train_results)
+        
+        XG_Kappa <- XG_train_results$overall["Kappa"]
+        
+        XG_pred_test <- predict(XG_final, newdata = transformed_test)
+        
+        XG_test_results <- confusionMatrix(transformed_test[[target]], XG_pred_test)
+        
+        print(XG_test_results)
+        
+        output$model_train_output <- renderPrint({
+          print(XG_train_results)
+        })
+        
+        output$model_test_output <- renderPrint({
+          print(XG_test_results)
+        })
+        
+        
+      } else if (input$model_type == "regression") {
+        print("regression")
+        
+        # getting target variable input by user
+        target <- input$response
+        df <- File()
+        
+        # making sure the split ratio chosen by user is numeric
+        data_split <- as.numeric(input$data_split)
+        
+        # splitting data
+        index <- createDataPartition(df[[target]], p = data_split, list = FALSE)
+        before_train <- df[index, ]
+        before_test <- df[-index, ]
+        
+        target_formula <- as.formula(paste(input$response, "~ ."))
+        
+        # standardizing and normalizing data
+        blueprint <- recipe(target_formula, data = before_train) %>%
+          step_string2factor(all_nominal_predictors()) %>%
+          step_nzv(all_predictors()) %>%
+          step_impute_knn(all_predictors()) %>%
+          step_center(all_numeric_predictors()) %>%
+          step_scale(all_numeric_predictors()) %>%
+          step_other(all_nominal(), threshold = 0.01, other = "other") %>%
+          step_dummy(all_nominal_predictors()) %>%
+          step_log(-all_numeric_predictors() %>% nearZeroVar()) %>%
+          step_naomit(everything())
+        
+        print(blueprint)
+        
+        blueprint_prep <- prep(blueprint, training = before_train)
+        
+        transformed_train <- bake(blueprint_prep, new_data = before_train)
+        transformed_test <- bake(blueprint_prep, new_data = before_test)
+        
+        fitControl_final <- trainControl(method = "none",
+                                         classProbs = FALSE)
+        
+        XG_final <- train(target_formula, 
+                          data = transformed_train,
+                          method = "xgbTree",
+                          trControl = fitControl_final,
+                          metric = "RMSE",
+                          tuneGrid = expand.grid(nrounds = input$nrounds,   
+                                                 max_depth = input$maxdepth, 
+                                                 eta = input$eta,    
+                                                 min_child_weight = input$minchildw, 
+                                                 subsample = input$subsample, 
+                                                 gamma = 0,
+                                                 colsample_bytree = 1))
+        
+        print("fit model")
+        
+        XG_pred_train <- predict(XG_final, newdata = transformed_train)
+        
+        XG_train_rmse <- sqrt(mean((transformed_train[[target]] - XG_pred_train)^2))
+        
+        print(XG_train_rmse)
+        
+        
+        XG_pred_test <- predict(XG_final, newdata = transformed_test)
       
-      output$model_test_output <- renderPrint({
-        print(paste("RMSE:", RF_test_rmse))
+        print((transformed_test[[target]] - XG_pred_test)^2)
         
-        prediction_df <- data.frame(Actual = transformed_test[[target]], Predicted = RF_pred_test)
+        XG_test_rmse <- sqrt(mean((transformed_test[[target]] - XG_pred_test)^2))
         
-        ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
-          geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
-          geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
-          labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
-          theme_minimal()  # Set plot theme
-      })
-      
-      output$test_plot <- renderPlot({
+        print(XG_test_rmse)
         
-        prediction_df <- data.frame(Actual = transformed_test[[target]], Predicted = RF_pred_test)
+        output$model_train_output <- renderPrint({
+          print(paste("RMSE:", XG_train_rmse))
+        })
         
-        graph <- ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
-          geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
-          geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
-          labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
-          theme_minimal()  # Set plot theme
+        output$train_plot <- renderPlot({
+          
+          prediction_df <- data.frame(Actual = transformed_train[[target]], Predicted = XG_pred_train)
+          
+          graph <- ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+            geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+            geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+            labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+            theme_minimal()  # Set plot theme
+          
+          graph
+          
+        })
         
-        graph
+        output$model_test_output <- renderPrint({
+          print(paste("RMSE:", XG_test_rmse))
+          
+          prediction_df <- data.frame(Actual = transformed_test[[target]], Predicted = XG_pred_test)
+          
+          ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+            geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+            geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+            labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+            theme_minimal()  # Set plot theme
+        })
         
-      })
-      
+        output$test_plot <- renderPlot({
+          
+          prediction_df <- data.frame(Actual = transformed_test[[target]], Predicted = XG_pred_test)
+          
+          graph <- ggplot(prediction_df, aes(x = Actual, y = Predicted)) +
+            geom_point(color = "blue") +  # Scatter plot of actual vs. predicted values
+            geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +  # Add a diagonal line for reference
+            labs(x = "Actual", y = "Predicted", title = "Actual vs. Predicted Values") +  # Axis labels and plot title
+            theme_minimal()  # Set plot theme
+          
+          graph
+          
+        })
+        
+      }
     }
     
-    # Display visualizations and interpretations
   })
   
 }
