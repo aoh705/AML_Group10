@@ -125,26 +125,28 @@ EDA
 ```{r}
 # THIS PART NEEDS TO BE FIXED AND NEATENED UP
 
-ggplot(data = chess_games_data) + geom_bar(aes(x = white_result),fill = "blue") + 
+original_chess_games_data <- read.csv("club_games_data.csv")
+
+ggplot(data = original_chess_games_data) + geom_bar(aes(x = white_result),fill = "blue") + 
   labs(title = "Frequency of different outcomes for white players",
        x = "Outcomes", y = "Count") + theme_bw()
        
        
 # See the first 6 rows
-head(chess_games_data)
+head(original_chess_games_data)
 ## The count of missing values in the dataset
-sum(is.na(chess_games_data))
+sum(is.na(original_chess_games_data))
 # Find the structure
-str(chess_games_data)
+str(original_chess_games_data)
 # Print unique values in the white_result column
-unique(chess_games_data$white_result)
+unique(original_chess_games_data$white_result)
 # Summary
-summary(chess_games_data)
+summary(original_chess_games_data)
 
-numeric_columns <- sapply(chess_games_data, is.numeric)
+numeric_columns <- sapply(original_chess_games_data, is.numeric)
 
 # Plotting the distribution of numerical features
-ggplot(gather(chess_games_data[, numeric_columns]), aes(value)) +
+ggplot(gather(original_chess_games_data[, numeric_columns]), aes(value)) +
   geom_histogram(bins = 30, fill = "red", color = "black") +
   facet_wrap(~ key, scales = 'free_x') +
   theme_minimal() +
@@ -154,7 +156,7 @@ ggplot(gather(chess_games_data[, numeric_columns]), aes(value)) +
 
 # chess_dataset$white_result <- factor(chess_dataset$white_result)
 
-# ggplot(gather(chess_dataset[, numeric_columns], key = 'feature', value = 'value'),
+# ggplot(gather(original_chess_dataset[, numeric_columns], key = 'feature', value = 'value'),
 #         aes(x = feature, y = value, fill = white_result)) +
 #         geom_boxplot() +
 #         facet_wrap(~ feature, scales = 'free') +
@@ -162,10 +164,51 @@ ggplot(gather(chess_games_data[, numeric_columns]), aes(value)) +
 #         labs(title = 'Box Plot of Numerical Features by Outcome', x = NULL, y = "Value")
 #         scale_fill_manual(values = c("win" = "green", "loss" = "red"))
 
-ggplot(chess_games_data, aes(x = white_result, y = EcoName, fill = white_result)) +
+ggplot(original_chess_games_data, aes(x = white_result, y = EcoName, fill = white_result)) +
  geom_boxplot() +
   labs(title = "Econame by Outcome", x = "Game outcome", y = "Econame") +
   theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Most key insights
+
+# For white
+
+ggplot(original_chess_games_data, aes(x = white_rating, fill = white_result)) + 
+  geom_density(alpha = 0.2) +
+  labs(title = "Density Plot of White Ratings by Game Outcome",
+       x = "White Rating", y = "Density") +
+  scale_fill_manual(values = c("win" = "blue", "checkmated" = "red"))
+
+# For black
+
+chess_games_data <- read.csv("club_games_data.csv")
+
+ggplot(original_chess_games_data, aes(x = black_rating, fill = black_result)) + 
+  geom_density(alpha = 0.2) +
+  labs(title = "Density Plot of Black Ratings by Game Outcome",
+       x = "White Rating", y = "Density") +
+  scale_fill_manual(values = c("win" = "blue", "checkmated" = "red"))
+
+# The win curve is broader than the checkmated curve, and captures higher-rated players as one would expect.
+# Higher rated players are more likely to be checkmated than lower-rated players, and the checkmated curve tends to have less extreme values than the win curve does.
+
+# For white
+
+ggplot(original_chess_games_data, aes(x = white_result, y = white_rating, fill = white_result)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of White Ratings by Game Outcome",
+       x = "Outcome", y = "Rating") +
+  scale_fill_manual(values = c("win" = "blue", "checkmated" = "red")) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# For black
+
+ggplot(original_chess_games_data, aes(x = black_result, y = black_rating, fill = white_result)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Black Ratings by Game Outcome",
+       x = "Outcome", y = "Rating") +
+  scale_fill_manual(values = c("win" = "blue", "checkmated" = "red")) + 
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
