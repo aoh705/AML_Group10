@@ -1,0 +1,544 @@
+---
+title: "chess_win_no_draws"
+author: "A.Oh"
+date: "2024-04-23"
+output: html_document
+---
+
+Installing libraries:
+```{r}
+library(readr)
+library(caret)
+library(tidymodels)
+library(tidyverse)
+library(randomForest)
+library(xgboost)
+library(keras)
+library(vip)
+library(pROC)
+library(dplyr)
+library(MLmetrics)
+library(ggplot2)
+library(archive)
+library(reticulate)
+
+# replace with personal python venv path (make sure the python version is compatible with computer OS (x86 vs arm64))
+use_python("/Users/Phebe/AML_Group10/env/bin/python")
+py_install("pandas")
+```
+
+Loading csv from data.tar.gz file:
+```{r}
+chess_games_data <- read.csv(archive_extract("data.tar.gz", files="club_games_data.csv"))
+head(chess_games_data)
+```
+
+Messing data up on purpose:
+```{r}
+set.seed(1)
+# No. of rows to set as NA (0.0001% of your data)
+num_rows_to_na <- ceiling(nrow(chess_games_data) * 0.0001)
+# Columns to set as NA
+columns_to_na <- c("white_rating", "black_rating", "rated", "time_class")
+
+# Introduce NA values randomly across specified columns
+for (col in columns_to_na) {
+  print(col)
+  # Randomly select rows for each column
+  rows_to_na <- sample(1:nrow(chess_games_data), num_rows_to_na, replace = FALSE)
+  # Set selected rows to NA for the column
+  chess_games_data[rows_to_na, col] <- NA
+}
+
+write.csv(chess_games_data, "chess_games_data.csv", row.names = FALSE)
+```
+
+Data cleaning/pre-processing:
+
+(Cleaning up the data)
+1. Dropping the "black_result" column and setting the "white_result" column to either "win" or "loss".
+```{r}
+chess_games_data <- chess_games_data[, !(names(chess_games_data) %in% c("black_result"))]
+
+chess_games_data <- chess_games_data %>%
+  mutate(white_result = case_when(
+    white_result %in% c("win", "threecheck", "kingofthehill") ~ "win",
+    white_result %in% c("checkmated", "timeout", "resigned", "abandoned") ~ "loss",
+  ))
+```
+
+2. Dropping "draw" columns
+```{r}
+chess_games_data <- chess_games_data[chess_games_data$white_result %in% c("win", "loss"), ]
+unique(chess_games_data$white_result)
+```
+
+
+3. Splitting the "pgn" column/variable to extract data
+- exploring the features that are present in this column, which is an array of features
+```{python}
+import pandas as pd
+
+chess_games_data = r.chess_games_data
+
+pgn_column = chess_games_data.pgn
+
+white_rc = chess_games_data.white_rating
+black_rc = chess_games_data.black_rating
+
+feature_names = ['Event', 'Site', 'Eco', 'EcoName']
+                 
+feature_positions = [0, 1, -15, -14]
+
+# goes through each row of the chess_games_data dataset and creates a new column for each of the features we wanted
+# to extract from the dataset (the above list of features)
+for feature_name, position in zip(feature_names, feature_positions):
+  feature_col = []
+  for row in pgn_column:
+    text = row.split('\n')
+    feature_col.append(text[position])
+  
+  chess_games_data[feature_name] = feature_col
+  
+# extract type of opening move strategy each player in the dataset uses
+econame_col = []
+for i in range(0, len(pgn_column)):
+  econame_col.append(chess_games_data['EcoName'][i].split('"')[1::2][-1].split('/')[-1])
+  
+chess_games_data['EcoName'] = econame_col
+n
+r.chess_games_data = chess_games_data
+```
+
+Take out fen, Site, and pgn columns
+```{r}
+chess_games_data <- select(chess_games_data, -c('fen', 'Site', 'pgn', 'white_id', 'black_id'))
+colnames(chess_games_data)
+```
+
+Write changed data into a .csv file for saving purposes:
+```{r}
+write.csv(chess_games_data, "modified_games_data.csv", row.names = FALSE)
+```
+
+EDA
+```{r}
+# THIS PART NEEDS TO BE FIXED AND NEATENED UP
+
+ggplot(data = chess_games_data) + geom_bar(aes(x = white_result),fill = "blue") + 
+  labs(title = "Frequency of different outcomes for white players",
+       x = "Outcomes", y = "Count") + theme_bw()
+       
+       
+# See the first 6 rows
+head(chess_games_data)
+## The count of missing values in the dataset
+sum(is.na(chess_games_data))
+# Find the structure
+str(chess_games_data)
+# Print unique values in the white_result column
+unique(chess_games_data$white_result)
+# Summary
+summary(chess_games_data)
+
+numeric_columns <- sapply(chess_games_data, is.numeric)
+
+# Plotting the distribution of numerical features
+ggplot(gather(chess_games_data[, numeric_columns]), aes(value)) +
+  geom_histogram(bins = 30, fill = "red", color = "black") +
+  facet_wrap(~ key, scales = 'free_x') +
+  theme_minimal() +
+  labs(title = 'Distribution of Numerical Features', x = NULL, y = "Frequency")
+
+# TO-FIX:
+
+# chess_dataset$white_result <- factor(chess_dataset$white_result)
+
+# ggplot(gather(chess_dataset[, numeric_columns], key = 'feature', value = 'value'),
+#         aes(x = feature, y = value, fill = white_result)) +
+#         geom_boxplot() +
+#         facet_wrap(~ feature, scales = 'free') +
+#         theme_minimal() +
+#         labs(title = 'Box Plot of Numerical Features by Outcome', x = NULL, y = "Value")
+#         scale_fill_manual(values = c("win" = "green", "loss" = "red"))
+
+ggplot(chess_games_data, aes(x = white_result, y = EcoName, fill = white_result)) +
+ geom_boxplot() +
+  labs(title = "Econame by Outcome", x = "Game outcome", y = "Econame") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+4. Data Splitting
+```{r}
+set.seed(1)      
+
+index <- createDataPartition(chess_games_data$`white_result`, p = 0.70, list = FALSE)
+games_train <- chess_games_data[index, ]
+games_test <- chess_games_data[-index, ]
+```
+
+
+5. Combine the datasets into one data frame with an additional column indicating the dataset source
+```{r}
+combined_df <- rbind(data.frame(data = 'white_result', dataset = 'Full', value = chess_games_data$`white_result`),
+                     data.frame(data = 'white_result', dataset = 'Train', value = games_train$`white_result`),
+                     data.frame(data = 'white_result', dataset = 'Test', value = games_test$`white_result`))
+combined_df <- combined_df %>%
+  group_by(dataset, value) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = count / sum(count)) %>%
+  ungroup()
+
+ggplot(combined_df, aes(x = value, y = percentage, fill = dataset)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  theme_minimal() +
+  labs(title = "Distribution of Target Feature 'white_result' across Datasets",
+       x = "Target Feature 'white_result' Value",
+       y = "Percentage") +
+  scale_fill_manual(values = c("Full" = "tomato", "Train" = "blue", "Test" = "grey"))
+```
+
+6. Transforming data
+```{r}
+blueprint <- recipe(white_result ~ ., data = games_train) %>%
+  step_string2factor(all_nominal_predictors()) %>%
+  #step_log(all_numeric_predictors(), skip = TRUE) %>%
+  step_nzv(all_predictors()) %>%
+  step_impute_knn(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors()) %>%
+  step_other(all_nominal(), threshold = 0.01, other = "other") %>%
+  step_dummy(all_nominal_predictors())
+
+blueprint_prep <- prep(blueprint, training = games_train)
+
+
+transformed_train <- bake(blueprint_prep, new_data = games_train)
+#write.csv(transformed_train, "~/Documents/Chess Win Prediction/transformed_train.csv", row.names = FALSE)
+#transformed_train <- read.csv("~/Documents/chess win prediction/transformed_train.csv")
+
+transformed_test <- bake(blueprint_prep, new_data = games_test)
+#write.csv(transformed_test, "~/Documents/Chess Win Prediction/transformed_test.csv", row.names = FALSE)
+#transformed_test <- read.csv("~/Documents/chess win prediction/transformed_test.csv")
+
+transformed_train$white_result <- factor(transformed_train$white_result, levels = c("win", "loss"))
+transformed_test$white_result <- factor(transformed_test$white_result, levels = c("win", "loss"))
+```
+
+Modeling:
+1. Random Forest
+- feature engineering
+```{r}
+resample_1 <- trainControl(method = "cv",
+                           number = 5,
+                           classProbs = TRUE,
+                           summaryFunction = twoClassSummary)    # adds more metrics to the model
+
+hyper_grid <- expand.grid(mtry = c(13, 15, 17),
+                          splitrule = c("gini", "extratrees"),
+                          min.node.size = c(5, 7, 9))
+
+rf_fit <- train(white_result ~ .,
+                data = transformed_train, 
+                method = "ranger",
+                verbose = FALSE,
+                trControl = resample_1, 
+                tuneGrid = hyper_grid,
+                metric = "ROC")
+
+saveRDS(rf_fit, "chess win prediction/rf_model.rds") # for convenience 
+rf_fit <- readRDS("chess win prediction/rf_model.rds")
+
+ggplot(rf_fit, metric = "Sens")   # Sensitivity
+ggplot(rf_fit, metric = "Spec")   # Specificity
+ggplot(rf_fit, metric = "ROC")    # AUC ROC
+```
+
+- Final Model
+```{r}
+fitControl_final <- trainControl(method = "none",
+                                 classProbs = TRUE)
+
+RF_final <- train(white_result ~., 
+                  data = transformed_train,
+                  method = "ranger",
+                  trControl = fitControl_final,
+                  metric = "ROC",
+                  tuneGrid = data.frame(.mtry = 13,
+                                        .min.node.size = 9,
+                                        .splitrule = "gini"))
+```
+
+- Fitting final model to training and test sets:
+    - Training set results
+```{r}
+RF_pred_train <- predict(RF_final, newdata = transformed_train)
+
+RF_train_results <- confusionMatrix(transformed_train$white_result, RF_pred_train)
+
+print(RF_train_results)
+
+RF_Kappa <- RF_train_results$overall["Kappa"]
+```
+
+    - Testing set results
+```{r}
+RF_pred_test <- predict(RF_final, newdata = transformed_test)
+
+RF_test_results <- confusionMatrix(transformed_test$white_result, RF_pred_test)
+
+print(RF_test_results)
+```
+
+2. XG Boost
+- feature engineering
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(transformed_train[, -which(names(transformed_train) == "white_result")]),
+                      label = as.numeric(transformed_train$white_result) - 1)
+
+dtest <- xgb.DMatrix(data = as.matrix(transformed_test[, -which(names(transformed_test) == "white_result")]),
+                     label = as.numeric(transformed_test$white_result) - 1)
+
+hyper_grid <- expand.grid(
+  eta = c(0.05, 0.1),
+  max_depth = c(3, 6),
+  min_child_weight = c(1, 2),
+  subsample = c(0.5, 0.75),
+  colsample_bytree = c(0.5, 0.75),
+  gamma = c(0, 0.1),
+  stringsAsFactors = FALSE  # To keep the grid as a dataframe of strings
+)
+
+# Initialize an empty dataframe to store results
+results <- data.frame()
+
+# Loop over each set of parameters in the grid
+for(i in 1:nrow(hyper_grid)) {
+  params <- list(
+    booster = "gbtree",
+    objective = "binary:logistic",
+    eval_metric = "auc",
+    eta = hyper_grid$eta[i],
+    max_depth = hyper_grid$max_depth[i],
+    min_child_weight = hyper_grid$min_child_weight[i],
+    subsample = hyper_grid$subsample[i],
+    colsample_bytree = hyper_grid$colsample_bytree[i],
+    gamma = hyper_grid$gamma[i]
+  )
+  
+  # Perform cross-validation
+  cv <- xgb.cv(
+    params = params,
+    data = dtrain,
+    nrounds = 100,
+    nfold = 5,
+    early_stopping_rounds = 10,
+    verbose = 0
+  )
+  
+  # Record the best score and corresponding parameters
+  best_score <- max(cv$evaluation_log$test_auc_mean)
+  results <- rbind(results, cbind(hyper_grid[i, ], score = best_score))
+}
+
+# Review the results
+results <- results[order(-results$score), ]  # Sort by score descending
+print(results)
+
+best_params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "auc",
+  eta = 0.1,
+  max_depth = 6,
+  min_child_weight = 2,
+  subsample = 0.50,
+  colsample_bytree = 0.75,
+  gamma = 0.1
+)
+```
+
+- Final model
+```{r}
+XGB_final <- xgb.train(
+  params = best_params,
+  data = dtrain,
+  nrounds = 100  # Or use the best iteration number from your CV results
+)
+```
+
+- Training set results
+```{r}
+XGB_pred_train <- predict(XGB_final, dtrain)
+XGB_pred_train <- ifelse(XGB_pred_train > 0.5, 1, 0)  # Convert probabilities to binary class output
+```
+
+- Testing set
+```{r}
+# Prepare the testing data as DMatrix
+dtest <- xgb.DMatrix(data = as.matrix(transformed_test[, -which(names(transformed_test) == "white_result")]))
+# Predictions on the testing data
+XGB_pred_test <- predict(XGB_final, dtest)
+XGB_pred_test <- ifelse(XGB_pred_test > 0.5, 1, 0)  # Convert probabilities to binary class output
+
+# Training data confusion matrix
+confusionMatrix(factor(XGB_pred_train, levels = c(0, 1)),
+                factor(as.numeric(transformed_train$white_result) - 1, levels = c(1, 0)))
+
+XGB_Kappa <- XGB_train_results$overall["Kappa"]
+```
+
+- Confusion Matrix for testing data
+```{r}
+confusionMatrix(factor(XGB_pred_test, levels = c(0, 1)),
+                factor(as.numeric(transformed_test$white_result) - 1, levels = c(1, 0)))
+```
+
+3. Artificial Neural Networks
+- feature engineering
+```{r}
+resample <- trainControl(method = "cv",
+                         
+                         number = 5,
+                         
+                         classProbs = TRUE,
+                         
+                         summaryFunction = twoClassSummary)
+
+
+hyper_grid <- expand.grid(layer1 = c(25, 45),
+                          
+                          layer2 = c(10, 30),
+                          
+                          layer3 = c(5, 15))
+
+# Tuning hyperparameters
+
+dnn_fit <- train(white_result ~ .,
+                 
+                 data = transformed_train, 
+                 
+                 method = "mlpML",
+                 
+                 trControl = resample, 
+                 
+                 tuneGrid = hyper_grid,
+                 
+                 metric = "ROC")
+
+print(dnn_fit$results)
+
+ggplot(dnn_fit, metric = "Sens")   # Sensitivity
+ggplot(dnn_fit, metric = "Spec")   # Specificity
+ggplot(dnn_fit, metric = "ROC")    # AUC ROC
+```
+
+- Final model
+```{r}
+fitControl_final <- trainControl(method = "none",
+                                 classProbs = TRUE)
+
+ANN_final <- train(white_result ~., 
+                   data = transformed_train,
+                   method = "mlpML",
+                   trControl = fitControl_final,
+                   metric = "ROC",
+                   tuneGrid = expand.grid(layer1 = 45,
+                                          layer2 = 30,
+                                          layer3 = 5))
+```
+
+- Training set results
+```{r}
+ANN_pred_train <- predict(ANN_final, newdata = transformed_train)
+
+ANN_train_results <- confusionMatrix(transformed_train$white_result, ANN_pred_train)
+
+print(ANN_train_results)
+
+ANN_Kappa <- ANN_train_results$overall["Kappa"]
+```
+
+- Testing set results
+```{r}
+ANN_pred_test <- predict(ANN_final, newdata = transformed_test)
+
+ANN_test_results <- confusionMatrix(transformed_test$white_result, ANN_pred_test)
+
+print(ANN_test_results)
+```
+
+4. Super Learner (SP)
+- weights
+```{r}
+Weights <- c((RF_Kappa)^2/sum((RF_Kappa)^2 + (XGB_Kappa)^2 + (ANN_Kappa)^2),
+             
+             (XGB_Kappa)^2/sum((RF_Kappa)^2 + (XGB_Kappa)^2 + (ANN_Kappa)^2),
+             
+             (ANN_Kappa)^2/sum((RF_Kappa)^2 + (XGB_Kappa)^2) + (ANN_Kappa)^2)
+
+
+super_learner <- function(M1, M2, M3, W) {
+  
+  weighted_average <- t(W*t(cbind(M1, M2, M3))) %>% apply(1, sum)
+  
+  final_prediction <- ifelse(weighted_average > 0.5, "win", "loss") %>% factor(levels = c("loss", "win"))
+  
+  return(final_prediction)
+  
+}
+```
+
+- Making predictions
+```{r}
+RF_prediction <- predict(RF_final, newdata = games_test, type = "prob")["win"]
+
+SVM_prediction <- predict.train(SVM_final, newdata = games_test %>% select(-white_result), type = "prob")["win"]
+
+XGB_prediction <- predict(XGB_final, newdata = games_test, type = "prob")["win"]
+
+ANN_prediction <- predict(ANN_final, newdata = games_test, type = "prob")["win"]
+
+SP_prediction <- super_learner(RF_prediction, XGB_prediction, ANN_prediction, Weights)
+
+SP_prediction_factor <- factor(ifelse(SP_prediction > 0.5, "win", "loss"),
+                               levels = c("loss", "win")) # fixes the weird order
+
+SP_results <- confusionMatrix(transformed_test$white_result, SP_prediction)
+
+SP_results
+```
+
+- Interpretable ML: Permutation Based Feature Importance
+```{r}
+# RF
+
+vip(RF_final)
+
+vip(RF_final, num_features = 20)
+
+vip(RF_final, num_features = 20, geom = "point")
+
+
+# XGB
+
+vip(XGB_final)
+
+vip(XGB_final, num_features = 20)
+
+vip(XGB_final, num_features = 20, geom = "point")
+
+# ANN
+
+prob_yes <- function(object, newdata) {                        # wrapper function
+  
+  predict(object, newdata = newdata, type = "prob")[, "Yes"]
+  
+}
+
+
+vip(ANN_final, method = "permute", train = transformed_train, target = "white_result",
+    
+    metric = "roc_auc", reference_class = "Yes", pred_wrapper = prob_yes)
