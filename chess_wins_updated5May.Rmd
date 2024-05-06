@@ -210,6 +210,25 @@ ggplot(original_chess_games_data, aes(x = black_result, y = black_rating, fill =
        x = "Outcome", y = "Rating") +
   scale_fill_manual(values = c("win" = "blue", "checkmated" = "red")) + 
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# PCA (Principal Component Analysis)
+
+numeric_data <- select(chess_games_data, white_rating, black_rating)
+
+pca_results <- prcomp(numeric_data, center = TRUE, scale = TRUE)
+
+library("dplyr")
+
+biplot(pca_results, scale = 0)
+
+# The black and white rating vectors both point leftward, indicating that they correlate highly, which makes sense because in games similar ELOs are paired.
+
+# The arrows are relatively long, meaning both the white rating and the white rating are important variables for explaining observational variability of the other features, albeit the black rating very slightly moreso.
+
+# Ratings are an indispensable factor in predicting outcomes. High ratings indicate that players tend to have better understanding and mastery of the game.
+
+# We witness a broad distribution, implying a diverse set of games which involves players of different skill levels.
 ```
 
 
