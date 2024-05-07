@@ -75,44 +75,73 @@ unique(chess_games_data$white_result)
 
 
 3. Splitting the "pgn" column/variable to extract data
-- exploring the features that are present in this column, which is an array of features
+
 ```{python}
 import pandas as pd
 
-chess_games_data = r.chess_games_data
+# Assuming 'chess_games_data' is already loaded with 'pgn' being one of its columns
+pgn_column = chess_games_data['pgn']
 
-pgn_column = chess_games_data.pgn
+# Extract specified metadata
+feature_names = ['Event', 'Site']
+feature_positions = [0, 1]
 
-white_rc = chess_games_data.white_rating
-black_rc = chess_games_data.black_rating
-
-feature_names = ['Event', 'Site', 'Eco', 'EcoName']
-                 
-feature_positions = [0, 1, -15, -14]
-
-# goes through each row of the chess_games_data dataset and creates a new column for each of the features we wanted
-# to extract from the dataset (the above list of features)
+# Extract specified features from the PGN data
 for feature_name, position in zip(feature_names, feature_positions):
-  feature_col = []
-  for row in pgn_column:
-    text = row.split('\n')
-    feature_col.append(text[position])
-  
-  chess_games_data[feature_name] = feature_col
-  
-# extract type of opening move strategy each player in the dataset uses
-econame_col = []
-for i in range(0, len(pgn_column)):
-  econame_col.append(chess_games_data['EcoName'][i].split('"')[1::2][-1].split('/')[-1])
-  
-chess_games_data['EcoName'] = econame_col
-n
+    feature_col = []
+    for row in pgn_column:
+        text = row.split('\n')
+        # Extracting the key-value pair, then stripping characters from the value
+        key_value_pair = text[position].split(' ', 1)
+        if len(key_value_pair) > 1:
+            # Removing the first and last characters which should be the quote marks
+            clean_value = key_value_pair[1].strip()[1:-1]
+        else:
+            clean_value = 'Unknown'  # Fallback if there's an issue with the format
+        feature_col.append(clean_value)
+    chess_games_data[feature_name] = feature_col
+
+# Now, extracting the first move properly
+first_move_col = []
+for row in pgn_column:
+    # Splitting each PGN into sections, then getting the moves section
+    sections = row.split(']')
+    if len(sections) > 1:
+        # Get the section after all metadata, clean up new lines and leading/trailing spaces
+        moves_section = sections[-1].strip()
+        # Split by spaces to isolate individual moves or move numbers
+        moves = moves_section.split()
+        # Assuming standard notation, the first actual move should follow the "1."
+        if len(moves) > 1 and moves[0] == "1.":
+            first_move = moves[1]  # First move typically follows "1."
+        else:
+            first_move = 'No move found'
+    else:
+        first_move = 'No move found'
+    first_move_col.append(first_move)
+
+chess_games_data['FirstMove'] = first_move_col
+
+# First, verify the existing DataFrame structure by checking the first few rows
+print("Before modification:")
+print(chess_games_data[['Event', 'Site', 'FirstMove']].head())
+
+# Drop columns safely
+columns_to_drop = ['fen', 'Site', 'pgn', 'white_id', 'black_id', 'Eco', 'EcoName']
+# Ensure all columns to drop exist in the DataFrame to avoid KeyError
+existing_columns = [col for col in columns_to_drop if col in chess_games_data.columns]
+chess_games_data = chess_games_data.drop(columns=existing_columns)
+
+# Verify the DataFrame after dropping columns
+print("After dropping columns:")
+print(chess_games_data.head())
+print(chess_games_data.columns)
+
 r.chess_games_data = chess_games_data
 ```
 
-Take out fen, Site, and pgn columns
+Check that data has been transferred from Python to R
 ```{r}
-chess_games_data <- select(chess_games_data, -c('fen', 'Site', 'pgn', 'white_id', 'black_id'))
 colnames(chess_games_data)
 ```
 
