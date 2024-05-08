@@ -123,33 +123,6 @@ ui <- fluidPage(
              
              
     ),
-    
-    tabPanel("Data Pre-Processing",
-             
-             titlePanel("Preprocessing"),
-             
-             sidebarLayout(
-               
-               sidebarPanel(
-                 
-                 checkboxGroupInput("column_choices", label = "Select Columns to exclude:",
-                                    
-                                    choices = NULL),
-                 
-                 actionButton("data_clean", "Submit")
-                 
-               ),
-               
-               mainPanel(
-                 
-                 dataTableOutput("modified_preview")
-                   
-                 )
-                 
-               )
-               
-               
-    ),
              
     tabPanel("Model",
              
@@ -788,16 +761,22 @@ server <- function(input, output, session) {
         
         print("after hyperparameters")
         
+        nrounds <- as.numeric(input$nrounds)
+        maxdepth <- as.numeric(input$maxdepth)
+        eta <- as.numeric(input$eta)
+        minchildw <- as.numeric(input$minchildw)
+        subsample <- as.numeric(input$subsample)
+        
         XG_final <- train(target_formula, 
                           data = transformed_train,
                           method = "xgbTree",
                           trControl = fitControl_final,
                           metric = "ROC",
-                          tuneGrid = expand.grid(nrounds = input$nrounds,   
-                                                 max_depth = input$maxdepth, 
-                                                 eta = input$eta,    
-                                                 min_child_weight = input$minchildw, 
-                                                 subsample = input$subsample, 
+                          tuneGrid = expand.grid(nrounds = nrounds,   
+                                                 max_depth = maxdepth, 
+                                                 eta = eta,    
+                                                 min_child_weight = minchildw, 
+                                                 subsample = subsample, 
                                                  gamma = 0,
                                                  colsample_bytree = 1))
         
