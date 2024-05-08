@@ -23,7 +23,7 @@ library(archive)
 library(reticulate)
 
 # replace with personal python venv path (make sure the python version is compatible with computer OS (x86 vs arm64))
-use_python("/Users/Phebe/AML_Group10/env/bin/python")
+use_python("/opt/anaconda3/envs/anaconda/bin/python")
 py_install("pandas")
 ```
 
@@ -79,6 +79,8 @@ unique(chess_games_data$white_result)
 ```{python}
 import pandas as pd
 
+chess_games_data = r.chess_games_data
+
 # Assuming 'chess_games_data' is already loaded with 'pgn' being one of its columns
 pgn_column = chess_games_data['pgn']
 
@@ -101,6 +103,18 @@ for feature_name, position in zip(feature_names, feature_positions):
         feature_col.append(clean_value)
     chess_games_data[feature_name] = feature_col
 
+def extract_move(pgn):
+    if(pgn.find('{[') == -1):
+        original_list = pgn.split("\n")[-2].split()
+        toberemoved_list = pgn.split("\n")[-2].split()[::3]
+        new_list = [x for x in original_list if x not in toberemoved_list]
+        return new_list
+    else:
+        return pgn.split("\n")[-2].split()[1::4]
+chess_games_data['Moves'] = chess_games_data['pgn'].apply(extract_move)
+
+r.extract = chess_games_data
+
 # Now, extracting the first move properly
 first_move_col = []
 for row in pgn_column:
@@ -122,9 +136,23 @@ for row in pgn_column:
 
 chess_games_data['FirstMove'] = first_move_col
 
+# extracting first move differently
+first_move = []
+for row in chess_games_data['Moves']:
+  if len(row) == 1:
+    first_move.append(row)
+  elif len(row) > 1:
+    first_move.append(row[0])
+  else:
+    first_move.append("No move found")
+    
+chess_games_data['FirstMove1'] = first_move
+
 # First, verify the existing DataFrame structure by checking the first few rows
 print("Before modification:")
 print(chess_games_data[['Event', 'Site', 'FirstMove']].head())
+
+before_mod = chess_games_data
 
 # Drop columns safely
 columns_to_drop = ['fen', 'Site', 'pgn', 'white_id', 'black_id', 'Eco', 'EcoName']
@@ -138,6 +166,7 @@ print(chess_games_data.head())
 print(chess_games_data.columns)
 
 r.chess_games_data = chess_games_data
+r.before_mod = before_mod
 ```
 
 Check that data has been transferred from Python to R
