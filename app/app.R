@@ -42,9 +42,19 @@ ui <- fluidPage(
              
              mainPanel(
                
-               helpText("STAT 3106: Applied Machine Learning - Final Project for Group 10"),
+               tags$h3("STAT 3106: Applied Machine Learning - Final Project for Group 10"),
                
-               "Welcome to Group 10's Final Project. Authors: Aimee Oh, Phebe Lew, Sean Le Van"
+               tags$h4("Welcome to Group 10's Final Project."),
+                       
+               tags$h4("Authors: Aimee Oh, Phebe Lew, Sean Le Van"),
+               
+               tags$h4("Steps to take to train a model:"),
+               
+               tags$h5("1. Navigate to the 'Data' tab. You are able to preview either the already loaded dataset or your own dataset."),
+               
+               tags$h5("2. Then, navigate to the 'EDA' tab to explore the data with a scatterplot, exploring the possible correlations some variables will have each other. Additionally, you will choose your response variable here."),
+               
+               tags$h5("3. Then, go to the 'Model' tab to train your model on your data. Make sure that you are choosing the correct type of model (i.e. classification vs regression). If the type of model and class of your response variable do not match, then the app will not work.")
                )
              
     ),
@@ -440,8 +450,6 @@ server <- function(input, output, session) {
   })
   
   ##
-  
-  observe({
   # Train random forest model
   observeEvent(input$train, {
     set.seed(1)
@@ -484,30 +492,19 @@ server <- function(input, output, session) {
           step_other(all_nominal(), threshold = 0.01, other = "other") %>%
           step_dummy(all_nominal_predictors())
         
-        print(blueprint)
-        
         blueprint_prep <- prep(blueprint, training = before_train)
         
         transformed_train <- bake(blueprint_prep, new_data = before_train)
         transformed_test <- bake(blueprint_prep, new_data = before_test)
         
-        # Check the class of transformed_train
-        
-        print(class(transformed_train))
-        print(dim(transformed_train))  # Check dimensions
-        
         hyperparameters <- data.frame(.mtry = input$mtry,
                                       .min.node.size = input$nodes,
                                       .splitrule = "extratrees")
-        
-        print(class(hyperparameters))
         
         fitControl_final <- trainControl(method = "cv",
                                          number = 5,
                                          classProbs = TRUE,
                                          summaryFunction = twoClassSummary)
-        
-        print("after hyperparameters")
         
         mtry <- as.numeric(input$mtry)
         nodes <- as.numeric(input$nodes)
@@ -542,8 +539,6 @@ server <- function(input, output, session) {
         
         
       } else if (input$model_type == "regression") {
-        print("regression")
-        
         # getting target variable input by user
         target <- input$response
         df <- File()
@@ -570,8 +565,6 @@ server <- function(input, output, session) {
           step_log(-all_numeric_predictors() %>% nearZeroVar()) %>%
           step_naomit(everything())
         
-        print(blueprint)
-        
         blueprint_prep <- prep(blueprint, training = before_train)
         
         transformed_train <- bake(blueprint_prep, new_data = before_train)
@@ -596,22 +589,15 @@ server <- function(input, output, session) {
                           importance = TRUE,
                           ntree = 300)
         
-        print("fit model")
-        
         RF_pred_train <- predict(RF_final, newdata = transformed_train)
         
         RF_train_rmse <- sqrt(mean((transformed_train[[target]] - RF_pred_train)^2))
-        
-        print(RF_train_rmse)
-        
         
         RF_pred_test <- predict(RF_final, newdata = transformed_test)
         
         print((transformed_test[[target]] - RF_pred_test)^2)
         
         RF_test_rmse <- sqrt(mean((transformed_test[[target]] - RF_pred_test)^2))
-        
-        print(RF_test_rmse)
         
         output$model_train_output <- renderPrint({
           print(paste("RMSE:", RF_train_rmse))
@@ -699,22 +685,13 @@ server <- function(input, output, session) {
           step_other(all_nominal(), threshold = 0.01, other = "other") %>%
           step_dummy(all_nominal_predictors())
         
-        print(blueprint)
-        
         blueprint_prep <- prep(blueprint, training = before_train)
         
         transformed_train <- bake(blueprint_prep, new_data = before_train)
         transformed_test <- bake(blueprint_prep, new_data = before_test)
         
-        # Check the class of transformed_train
-        
-        print(class(transformed_train))
-        print(dim(transformed_train))  # Check dimensions
-        
         fitControl_final <- trainControl(method = "none",
                                          classProbs = TRUE)
-        
-        print("after hyperparameters")
         
         nrounds <- as.numeric(input$nrounds)
         maxdepth <- as.numeric(input$maxdepth)
@@ -735,21 +712,15 @@ server <- function(input, output, session) {
                                                  gamma = 0,
                                                  colsample_bytree = 1))
         
-        print("fit model")
-        
         XG_pred_train <- predict(XG_final, newdata = transformed_train)
         
         XG_train_results <- confusionMatrix(transformed_train[[target]], XG_pred_train)
-        
-        print(XG_train_results)
         
         XG_Kappa <- XG_train_results$overall["Kappa"]
         
         XG_pred_test <- predict(XG_final, newdata = transformed_test)
         
         XG_test_results <- confusionMatrix(transformed_test[[target]], XG_pred_test)
-        
-        print(XG_test_results)
         
         output$model_train_output <- renderPrint({
           print(XG_train_results)
@@ -761,8 +732,6 @@ server <- function(input, output, session) {
         
         
       } else if (input$model_type == "regression") {
-        print("regression")
-        
         # getting target variable input by user
         target <- input$response
         df <- File()
@@ -788,8 +757,6 @@ server <- function(input, output, session) {
           step_dummy(all_nominal_predictors()) %>%
           step_log(-all_numeric_predictors() %>% nearZeroVar()) %>%
           step_naomit(everything())
-        
-        print(blueprint)
         
         blueprint_prep <- prep(blueprint, training = before_train)
         
@@ -818,22 +785,13 @@ server <- function(input, output, session) {
                                                  gamma = 0,
                                                  colsample_bytree = 1))
         
-        print("fit model")
-        
         XG_pred_train <- predict(XG_final, newdata = transformed_train)
         
         XG_train_rmse <- sqrt(mean((transformed_train[[target]] - XG_pred_train)^2))
         
-        print(XG_train_rmse)
-        
-        
         XG_pred_test <- predict(XG_final, newdata = transformed_test)
-      
-        print((transformed_test[[target]] - XG_pred_test)^2)
         
         XG_test_rmse <- sqrt(mean((transformed_test[[target]] - XG_pred_test)^2))
-        
-        print(XG_test_rmse)
         
         output$model_train_output <- renderPrint({
           print(paste("RMSE:", XG_train_rmse))
@@ -882,8 +840,6 @@ server <- function(input, output, session) {
       }
     }
     
-  })
-
   })
   
 }
