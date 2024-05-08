@@ -10,11 +10,7 @@ library(pROC)
 library(dplyr)
 library(ggplot2)
 
-### PURPOSELY MESSING UP THE DATASET TO ALLOW FOR DATA PREPROCESSING
-# I did this after data exploration revealed no NA values.
-# I restricted the columns that I'm messing up.
-# I think for the final submission, we could just do this in a separate
-# appendix document.
+### PURPOSELY MESSING UP THE DATASET
 chess_games_data <- read.csv("Documents/Chess Win Prediction/club_games_data.csv")
 
 set.seed(1)
@@ -32,9 +28,6 @@ for (col in columns_to_na) {
 }
 
 write.csv(chess_games_data, "chess_games_data.csv", row.names = FALSE)
-
-
-
 
 
 
@@ -62,9 +55,9 @@ chess_games_data <- chess_games_data[, !(names(chess_games_data) %in% c("black_r
 
 chess_games_data <- chess_games_data %>%
   mutate(white_result = case_when(
-    white_result %in% c("win", "threecheck", "kingofthehill") ~ 1,
-    white_result %in% c("checkmated", "timeout", "resigned", "abandoned") ~ 0,
-    TRUE ~ 0.5 # Assumes all other cases are draws
+    white_result %in% c("win", "threecheck", "kingofthehill") ~ "win",
+    white_result %in% c("checkmated", "timeout", "resigned", "abandoned") ~ "loss",
+    TRUE ~ "draw" # Assumes all other cases are draws
   ))
 
 # Data Splitting
@@ -102,17 +95,160 @@ blueprint <- recipe(white_result ~ ., data = games_train) %>%
   step_center(all_numeric_predictors()) %>%
   step_scale(all_numeric_predictors()) %>%
   step_other(all_nominal(), threshold = 0.01, other = "other") %>%
-  step_dummy(all_nominal())
+  step_dummy(all_nominal_predictors())
 
 blueprint_prep <- prep(blueprint, training = games_train)
 
 transformed_train <- bake(blueprint_prep, new_data = games_train)
-transformed_test <- bake(blueprint_prep, new_data = games_test)
 
-### NEXT STEPS (Is there anything I am missing?)
-# 1. RF
-# 2. XGBoost
-# 3. SVM
-# 4. Artificial Neural Network
-# 5. Ensemble Method
+transformed_test <- bake(blueprint_prep, new_data = games_test) ######## FOR SOME REASON, THIS TAKES FOREVER TO RUN
+
+
+
+### RANDOM FOREST
+
+resample_1 <- trainControl(method = "cv",
+                           number = 5,
+                           classProbs = TRUE,
+                           summaryFunction = twoClassSummary)    # adds more metrics to the model
+
+hyper_grid <- expand.grid(mtry = c(13, 15, 17),
+                          splitrule = c("gini", "extratrees"),
+                          min.node.size = c(5, 7, 9))
+
+rf_fit <- train(white_result ~ .,
+                data = transformed_train, 
+                method = "ranger",
+                verbose = FALSE,
+                trControl = resample_1, 
+                tuneGrid = hyper_grid,
+                metric = "ROC")
+
+
+ggplot(rf_fit, metric = "Sens")   # Sensitivity
+ggplot(rf_fit, metric = "Spec")   # Specificity
+ggplot(rf_fit, metric = "ROC")    # AUC ROC
+
+
+fitControl_final <- trainControl(method = "none",
+                                 classProbs = TRUE)
+
+RF_final <- train(white_result ~., 
+                  data = transformed_train,
+                  method = "ranger",
+                  trControl = fitControl_final,
+                  metric = "ROC",
+                  tuneGrid = data.frame(.mtry = 13,
+                                        .min.node.size = 9,
+                                        .splitrule = "gini"))
+
+
+# Training set results
+
+RF_pred_train <- predict(RF_final, newdata = transformed_train)
+
+RF_train_results <- confusionMatrix(transformed_train$white_result, RF_pred_train)
+
+print(RF_train_results)
+
+# Test set results
+
+RF_pred_test <- predict(RF_final, newdata = transformed_test)
+
+RF_test_results <- confusionMatrix(transformed_test$white_result, RF_pred_test)
+
+print(RF_test_results)
+
+
+### XG Boost
+
+dtrain <- xgb.DMatrix(data = as.matrix(transformed_train[, -which(names(transformed_train) == "white_result")]),
+                      label = as.numeric(transformed_train$white_result) - 1)
+
+dtest <- xgb.DMatrix(data = as.matrix(transformed_test[, -which(names(transformed_test) == "white_result")]),
+                     label = as.numeric(transformed_test$white_result) - 1)
+
+hyper_grid <- expand.grid(
+  eta = c(0.05, 0.1),
+  max_depth = c(3, 6),
+  min_child_weight = c(1, 2),
+  subsample = c(0.5, 0.75),
+  colsample_bytree = c(0.5, 0.75),
+  gamma = c(0, 0.1),
+  stringsAsFactors = FALSE  # To keep the grid as a dataframe of strings
+)
+
+
+# Initialize an empty dataframe to store results
+results <- data.frame()
+
+# Loop over each set of parameters in the grid
+for(i in 1:nrow(hyper_grid)) {
+  params <- list(
+    booster = "gbtree",
+    objective = "binary:logistic",
+    eval_metric = "auc",
+    eta = hyper_grid$eta[i],
+    max_depth = hyper_grid$max_depth[i],
+    min_child_weight = hyper_grid$min_child_weight[i],
+    subsample = hyper_grid$subsample[i],
+    colsample_bytree = hyper_grid$colsample_bytree[i],
+    gamma = hyper_grid$gamma[i]
+  )
+  
+  # Perform cross-validation
+  cv <- xgb.cv(
+    params = params,
+    data = dtrain,
+    nrounds = 100,
+    nfold = 5,
+    early_stopping_rounds = 10,
+    verbose = 0  # Change to 1 for more detailed output
+  )
+  
+  # Record the best score and corresponding parameters
+  best_score <- max(cv$evaluation_log$test_auc_mean)
+  results <- rbind(results, cbind(hyper_grid[i, ], score = best_score))
+}
+
+# Review the results
+results <- results[order(-results$score), ]  # Sort by score descending
+print(results)
+
+best_params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "auc",
+  eta = 0.05,
+  max_depth = 6,
+  min_child_weight = 2,
+  subsample = 0.50,
+  colsample_bytree = 0.75,
+  gamma = 0
+)
+
+# Train final model on the entire training dataset
+final_model <- xgb.train(
+  params = best_params,
+  data = dtrain,
+  nrounds = 100  # Or use the best iteration number from your CV results
+)
+
+# Predictions on the training data
+train_preds_prob <- predict(final_model, dtrain)
+train_preds <- ifelse(train_preds_prob > 0.5, 1, 0)  # Convert probabilities to binary class output
+
+# Prepare the testing data as DMatrix
+dtest <- xgb.DMatrix(data = as.matrix(transformed_test[, -which(names(transformed_test) == "white_result")]))
+# Predictions on the testing data
+test_preds_prob <- predict(final_model, dtest)
+test_preds <- ifelse(test_preds_prob > 0.5, 1, 0)  # Convert probabilities to binary class output
+
+# Training data confusion matrix
+confusionMatrix(factor(train_preds, levels = c(0, 1)),
+                factor(as.numeric(transformed_train$white_result) - 1, levels = c(0, 1)))
+
+# Testing data confusion matrix
+confusionMatrix(factor(test_preds, levels = c(0, 1)),
+                factor(as.numeric(transformed_test$white_result) - 1, levels = c(0, 1)))
 
