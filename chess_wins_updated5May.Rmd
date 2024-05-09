@@ -161,6 +161,70 @@ modified <- mysample <- chess_games_data[sample(1:nrow(chess_games_data), 4000, 
 write.csv(modified, "games_data.csv", row.names = FALSE)
 ```
 
+NEW MODIFIED EDA
+```{r}
+View(head(chess_games_data))
+summary(chess_games_data)
+
+first_move = table(chess_games_data$FirstMove)
+first_move[first_move > 600]
+
+
+moves_above_600 <- names(first_move[first_move > 600])
+filtered_data <- subset(chess_games_data, FirstMove %in% moves_above_600)
+
+ggplot(filtered_data, aes(x = FirstMove, fill = white_result)) +
+  geom_bar(position = "fill") +
+  labs(x = "First Move", y = "Proportion",
+       title = "Proportion of Wins and Losses for Frequent First Moves") +
+  scale_fill_brewer(palette = "Set1", name = "Result") +  # Set1 is typically good for categorical data
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+nearZeroVar(chess_games_data)
+nearZeroVar(chess_games_data, saveMetrics = TRUE)
+
+sum(is.na(chess_games_data))
+```
+
+```{r}
+ggplot(chess_games_data, aes(x = white_rating, y = white_result)) +
+  geom_point(alpha = 0.5) +
+  labs(x = "white_rating", y = "white_result", 
+       title = "white_result against white_rating") +
+  theme_minimal()
+
+ggplot(chess_games_data, aes(x = black_rating, y = white_result)) +
+  geom_point(alpha = 0.5) +
+  labs(x = "black_rating", y = "white_result", 
+       title = "white_result against black_rating") +
+  theme_minimal()
+```
+
+```{r}
+chess_games_subset <- subset(chess_games_data, white_result %in% c("win", "loss"))
+
+ggplot(chess_games_subset, aes(x = white_result, fill = white_result)) +
+  geom_bar() +
+  labs(x = "white_result", y = "count",
+       title = "Win-Loss Ratio for white_result") +
+  scale_fill_manual(values = c("win" = "blue", "loss" = "red")) + # Optional color settings
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(chess_games_data, aes(x = time_class, fill = white_result)) +
+  geom_bar(position = "dodge") + 
+  labs(title = "white_result over time_class",
+       x = "Time Class", y = "Count of Games") +
+  scale_fill_brewer(palette = "Set1", name = "Game Result") + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
 EDA
 ```{r}
 colSums(is.na(chess_games_data))
