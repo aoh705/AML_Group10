@@ -29,7 +29,8 @@ py_install("pandas")
 
 Loading csv from data.tar.gz file:
 ```{r}
-chess_games_data <- read.csv(archive_extract("data.tar.gz", files="club_games_data.csv"))
+club_games_data <- read.csv(archive_extract("data.tar.gz", files="club_games_data.csv"))
+chess_games_data <- club_games_data
 head(chess_games_data)
 ```
 
@@ -56,7 +57,7 @@ write.csv(chess_games_data, "chess_games_data.csv", row.names = FALSE)
 Data cleaning/pre-processing:
 
 (Cleaning up the data)
-1. Dropping the "black_result" column and setting the "white_result" column to either "win" or "loss".
+1. Dropping the "black_result" column and setting the "white_result" column to either "win" or "loss". Should only run once.
 ```{r}
 chess_games_data <- chess_games_data[, !(names(chess_games_data) %in% c("black_result"))]
 
@@ -155,11 +156,20 @@ Write changed data into a .csv file for saving purposes:
 ```{r}
 write.csv(chess_games_data, "modified_games_data.csv", row.names = FALSE)
 
+# smaller dataset for the web app
 modified <- mysample <- chess_games_data[sample(1:nrow(chess_games_data), 4000, replace=FALSE),]
 write.csv(modified, "games_data.csv", row.names = FALSE)
 ```
 
 EDA
+```{r}
+colSums(is.na(chess_games_data))
+
+nearZeroVar(chess_games_data)
+nearZeroVar(chess_games_data, saveMetrics = TRUE)
+```
+As we can see, there are not that many NA values, but we do have three columns that output TRUE for near zero variance. These are the 'rules', 'rated', and 'Event' columns. This may mean that these columns will affect the model negatively and may be better if we remove them. We must make sure that in our pre-processing steps, we have a step that removes all predictor variables that have near zero variance.
+
 ```{r}
 original_chess_games_data  <- read.csv("club_games_data.csv")
 
@@ -175,16 +185,6 @@ ggplot(data = original_chess_games_data ) + geom_bar(aes(x = black_result),fill 
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Frequency of different outcomes for white players and Frequency of different outcomes for black players:
-
-# Both black players and white players exhibit a similar distribution of the frequency of different categorical outcomes.
-
-# The win outcome is the most frequent, followed by resignation, timeout, and checkmated respectively. This indicates to us the common ways the games can conclude apart from the standard ways.
-
-# Abandoned, repetition, timevsinsufficnet, and insufficient are less likely outcomes, respectively in descending order.
-
-# threecheck and kingofthehill conditions are relatively rare.
-
 # See the first 6 rows
 head(original_chess_games_data )
 ## The count of missing values in the dataset
@@ -197,6 +197,7 @@ str(original_chess_games_data )
 unique(original_chess_games_data $white_result)
 # Summary
 summary(original_chess_games_data )
+
 
 library(e1071)
 
@@ -286,6 +287,11 @@ biplot(pca_results, scale = 0)
 # Ratings are an indispensable factor in predicting outcomes. High ratings indicate that players tend to have better understanding and mastery of the game.
 
 # We witness a broad distribution, implying a diverse set of games which involves players of different skill levels.
+```
+
+
+```{r}
+
 ```
 
 
@@ -503,16 +509,21 @@ XGB_pred_test <- predict(XGB_final, dtest)
 XGB_pred_test <- ifelse(XGB_pred_test > 0.5, 1, 0)  # Convert probabilities to binary class output
 
 # Training data confusion matrix
-confusionMatrix(factor(XGB_pred_train, levels = c(0, 1)),
+XGB_train_results <- confusionMatrix(factor(XGB_pred_train, levels = c(0, 1)),
                 factor(as.numeric(transformed_train$white_result) - 1, levels = c(1, 0)))
 
 XGB_Kappa <- XGB_train_results$overall["Kappa"]
+print(XGB_train_results)
 ```
 
 - Confusion Matrix for testing data
 ```{r}
-confusionMatrix(factor(XGB_pred_test, levels = c(0, 1)),
+XGB_test_results <- confusionMatrix(factor(XGB_pred_test, levels = c(0, 1)),
                 factor(as.numeric(transformed_test$white_result) - 1, levels = c(1, 0)))
+
+XGB_Kappa <- XGB_test_results$overall["Kappa"]
+
+print(XGB_test_results)
 ```
 
 3. Artificial Neural Networks
@@ -564,9 +575,9 @@ ANN_final <- train(white_result ~.,
                    method = "mlpML",
                    trControl = fitControl_final,
                    metric = "ROC",
-                   tuneGrid = expand.grid(layer1 = 45,
+                   tuneGrid = expand.grid(layer1 = 25,
                                           layer2 = 30,
-                                          layer3 = 5))
+                                          layer3 = 15))
 ```
 
 - Training set results
@@ -589,58 +600,8 @@ ANN_test_results <- confusionMatrix(transformed_test$white_result, ANN_pred_test
 print(ANN_test_results)
 ```
 
-4. Super Learner (SP)
-- weights
-```{r}
-Weights <- c((RF_Kappa)^2/sum((RF_Kappa)^2 + (XGB_Kappa)^2 + (ANN_Kappa)^2),
-             
-             (XGB_Kappa)^2/sum((RF_Kappa)^2 + (XGB_Kappa)^2 + (ANN_Kappa)^2),
-             
-             (ANN_Kappa)^2/sum((RF_Kappa)^2 + (XGB_Kappa)^2) + (ANN_Kappa)^2)
-
-
-super_learner <- function(M1, M2, M3, W) {
-  
-  weighted_average <- t(W*t(cbind(M1, M2, M3))) %>% apply(1, sum)
-  
-  final_prediction <- ifelse(weighted_average > 0.5, "win", "loss") %>% factor(levels = c("loss", "win"))
-  
-  return(final_prediction)
-  
-}
-```
-
-- Making predictions
-```{r}
-RF_prediction <- predict(RF_final, newdata = games_test, type = "prob")["win"]
-
-SVM_prediction <- predict.train(SVM_final, newdata = games_test %>% select(-white_result), type = "prob")["win"]
-
-XGB_prediction <- predict(XGB_final, newdata = games_test, type = "prob")["win"]
-
-ANN_prediction <- predict(ANN_final, newdata = games_test, type = "prob")["win"]
-
-SP_prediction <- super_learner(RF_prediction, XGB_prediction, ANN_prediction, Weights)
-
-SP_prediction_factor <- factor(ifelse(SP_prediction > 0.5, "win", "loss"),
-                               levels = c("loss", "win")) # fixes the weird order
-
-SP_results <- confusionMatrix(transformed_test$white_result, SP_prediction)
-
-SP_results
-```
-
 - Interpretable ML: Permutation Based Feature Importance
 ```{r}
-# RF
-
-vip(RF_final)
-
-vip(RF_final, num_features = 20)
-
-vip(RF_final, num_features = 20, geom = "point")
-
-
 # XGB
 
 vip(XGB_final)
@@ -648,16 +609,5 @@ vip(XGB_final)
 vip(XGB_final, num_features = 20)
 
 vip(XGB_final, num_features = 20, geom = "point")
+```
 
-# ANN
-
-prob_yes <- function(object, newdata) {                        # wrapper function
-  
-  predict(object, newdata = newdata, type = "prob")[, "Yes"]
-  
-}
-
-
-vip(ANN_final, method = "permute", train = transformed_train, target = "white_result",
-    
-    metric = "roc_auc", reference_class = "Yes", pred_wrapper = prob_yes)
